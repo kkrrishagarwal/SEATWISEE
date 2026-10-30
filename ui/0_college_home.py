@@ -39,7 +39,7 @@ html, body, .stApp, [class*="css"] {{ font-family:'Inter',system-ui,-apple-syste
 .nav .crest {{ width:38px; height:38px; border-radius:10px; background:linear-gradient(135deg,var(--gold),var(--neon)); display:grid; place-items:center; color:var(--navy); font-weight:900; }}
 .nav .links a {{ color:rgba(255,255,255,.82); text-decoration:none; margin-left:28px; font-weight:500; font-size:.95rem; }} .nav .links a:hover {{ color:var(--gold-2); }}
 
-.hero {{ position:relative; min-height:72vh; display:flex; align-items:center; padding:60px 6vw 120px; color:var(--white);
+.hero {{ position:relative; min-height:70vh; display:flex; align-items:center; padding:60px 6vw 80px; color:var(--white);
   background:linear-gradient(100deg,rgba(11,31,58,.92) 0%,rgba(11,31,58,.72) 45%,rgba(11,31,58,.35) 100%),url('{HERO_IMG}');
   background-size:cover; background-position:center; background-attachment:fixed; }}
 .hero::after {{ content:""; position:absolute; left:0; right:0; bottom:0; height:160px; background:linear-gradient(180deg,rgba(11,31,58,0),var(--navy)); }}
@@ -50,19 +50,16 @@ html, body, .stApp, [class*="css"] {{ font-family:'Inter',system-ui,-apple-syste
 .hero p {{ font-size:1.15rem; max-width:58ch; color:rgba(255,255,255,.85); line-height:1.6; margin:0; }}
 .announce {{ margin-top:26px; max-width:62ch; background:rgba(245,179,1,.14); border-left:4px solid var(--gold); padding:12px 16px; border-radius:10px; color:#FFF3C4; font-size:.95rem; }}
 
-/* ---- login card: navy band = the row holding the form; white card = the column holding it ---- */
-div[data-testid="stHorizontalBlock"]:has([data-testid="stForm"]) {{ background:var(--navy); padding:0 6vw 70px; margin:0; }}
-div[data-testid="stColumn"]:has([data-testid="stForm"]) {{ background:var(--white); border:1px solid rgba(15,23,42,.08); border-radius:22px;
-  padding:26px 26px 22px; box-shadow:0 24px 60px rgba(0,0,0,.35); margin-top:-110px; position:relative; z-index:3; }}
-div[data-testid="stForm"] {{ border:none !important; padding:0 !important; background:transparent !important; }}
-div[data-testid="stForm"] h3 {{ margin:0 0 4px; font-weight:900; letter-spacing:-.5px; }}
-div[data-testid="stFormSubmitButton"] > button {{ background:linear-gradient(135deg,var(--gold) 0%,#FF9F1C 100%) !important; color:var(--navy) !important;
-  font-weight:800 !important; border:none !important; border-radius:14px !important; padding:12px 20px !important; box-shadow:0 12px 30px rgba(245,179,1,.35) !important; }}
-div[data-testid="stFormSubmitButton"] > button:hover {{ transform:translateY(-2px); }}
-div[data-testid="stButton"] > button {{ background:transparent !important; color:var(--navy) !important; border:1.5px solid var(--navy) !important;
-  border-radius:14px !important; font-weight:700 !important; padding:10px 20px !important; margin-top:10px; }}
-div[data-testid="stButton"] > button:hover {{ background:var(--navy) !important; color:var(--gold-2) !important; }}
-div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stAlert"] {{ border-radius:12px; margin-top:10px; }}
+/* ---- hero CTA: the Streamlit button row directly under the hero becomes a navy band ---- */
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) {{ background:var(--navy); padding:0 6vw 64px; margin:0; align-items:center; }}
+div[data-testid="stButton"] > button {{ background:linear-gradient(135deg,var(--gold) 0%,#FF9F1C 100%) !important; color:var(--navy) !important;
+  font-weight:800 !important; font-size:1.05rem !important; padding:14px 34px !important; border:none !important; border-radius:14px !important;
+  box-shadow:0 12px 30px rgba(245,179,1,.35) !important; animation:pulse 2.2s infinite; transition:transform .15s ease; }}
+div[data-testid="stButton"] > button:hover {{ transform:translateY(-2px) scale(1.02); }}
+@keyframes pulse {{ 0% {{ box-shadow:0 0 0 0 rgba(245,179,1,.55),0 12px 30px rgba(245,179,1,.35); }} 70% {{ box-shadow:0 0 0 18px rgba(245,179,1,0),0 12px 30px rgba(245,179,1,.35); }} 100% {{ box-shadow:0 0 0 0 rgba(245,179,1,0),0 12px 30px rgba(245,179,1,.35); }} }}
+div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) p {{ color:rgba(255,255,255,.72); margin:0; }}
+.nav .cta {{ margin-left:28px; padding:9px 16px; border-radius:10px; background:linear-gradient(135deg,var(--gold),#FF9F1C); color:var(--navy) !important; font-weight:800 !important; }}
+.nav .cta:hover {{ color:var(--navy) !important; filter:brightness(1.06); }}
 
 .section {{ padding:90px 6vw; }} .section.alt {{ background:var(--white); }}
 .section.navy {{ background:radial-gradient(1200px 500px at 10% 0%,#1B3B6B 0%,var(--navy) 55%); color:var(--white); }}
@@ -99,7 +96,7 @@ div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stAlert"] 
 .footer a, .footer .line {{ color:rgba(255,255,255,.7); text-decoration:none; display:block; margin-bottom:9px; }} .footer a:hover {{ color:var(--gold-2); }}
 .footer .bottom {{ border-top:1px solid rgba(255,255,255,.1); margin-top:44px; padding-top:20px; display:flex; justify-content:space-between; font-size:.85rem; color:rgba(255,255,255,.5); flex-wrap:wrap; gap:10px; }}
 @media (max-width:900px) {{ .counters {{ grid-template-columns:repeat(2,1fr); }} .masonry {{ grid-template-columns:1fr 1fr; grid-template-rows:200px 200px 200px; }} .tile.big {{ grid-column:span 2; grid-row:span 1; }}
-  .banner, .footer .cols {{ grid-template-columns:1fr; }} .nav .links {{ display:none; }} div[data-testid="stColumn"]:has([data-testid="stForm"]) {{ margin-top:-60px; }} }}
+  .banner, .footer .cols {{ grid-template-columns:1fr; }} .nav .links {{ display:none; }} }}
 </style>
 """
 
@@ -113,7 +110,7 @@ def nav(content: dict) -> None:
     st.html(f"""
 <div class="nav">
   <div class="brand"><div class="crest">{name[:1]}</div> {name}</div>
-  <div class="links"><a href="#programs">Programs</a><a href="#campus">Campus</a><a href="#admissions">Admissions</a><a href="#contact">Contact</a></div>
+  <div class="links"><a href="#programs">Programs</a><a href="#campus">Campus</a><a href="#admissions">Admissions</a><a href="#contact">Contact</a><a class="cta" href="?page=login" target="_self">Login / Register</a></div>
 </div>""")
 
 
@@ -202,9 +199,36 @@ def footer(content: dict) -> None:
 <footer class="footer" id="contact">
   <div class="cols">
     <div><h4>{name}</h4><p style="max-width:40ch;line-height:1.6;color:rgba(255,255,255,.65)">{esc(content.get("hero_subtitle", ""))}</p></div>
-    <div><h4>Quick links</h4><a href="#programs">Programs</a><a href="#campus">Campus</a><a href="#admissions">Admissions</a><a href="#top">Portal login</a></div>
-    <div><h4>Students</h4><a href="#top">Register</a><a href="#top">Check my seat</a><a href="#admissions">How allocation works</a></div>
+    <div><h4>Quick links</h4><a href="#programs">Programs</a><a href="#campus">Campus</a><a href="#admissions">Admissions</a><a href="?page=login" target="_self">Portal login</a></div>
+    <div><h4>Students</h4><a href="?page=login" target="_self">Register</a><a href="?page=login" target="_self">Check my seat</a><a href="#admissions">How allocation works</a></div>
     <div><h4>Contact</h4>{contact_lines}</div>
   </div>
   <div class="bottom"><span>© 2026 {name}. All rights reserved.</span><span>Admissions governed by SEATWISEE · Google OR-Tools CP-SAT</span></div>
 </footer>""")
+
+
+def render(c) -> None:
+    """Pure informational college website. The only Streamlit widget is the Login / Register CTA."""
+    from database import db_manager as db
+
+    content = db.get_site_content(c)
+    programs_df = db.load_programs(c)
+    stats = {
+        "programs": len(programs_df),
+        "seats": int(programs_df.capacity.sum()) if len(programs_df) else 0,
+        "applicants": c.execute("SELECT COUNT(*) FROM applicants WHERE status='active'").fetchone()[0],
+    }
+    inject_css()
+    nav(content)
+    hero(content)
+    c1, c2 = st.columns([1, 4])
+    with c1:
+        if st.button("Login / Register →", key="cta_login", width="stretch"):
+            st.session_state["current_page"] = "login"
+            st.rerun()
+    with c2:
+        st.markdown("Students · Admissions office · one secure gateway powered by SEATWISEE")
+    programs(programs_df)
+    campus(stats)
+    admissions(content)
+    footer(content)
