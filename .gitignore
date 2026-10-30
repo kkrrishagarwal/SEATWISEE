@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+# SQLite
+*.db
+*.db-journal
+*.sqlite
+# Streamlit / misc
+.streamlit/secrets.toml
+*.pdf
+.DS_Store
