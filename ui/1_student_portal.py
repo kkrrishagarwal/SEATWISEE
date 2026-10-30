@@ -14,6 +14,17 @@ from database import db_manager as db
 from ui import auth
 from ui.common import BRAND, allotment_letter_pdf, application_receipt_pdf, conn
 
+NAV_DASHBOARD = "🏠 Dashboard"
+NAV_APPLY = "📝 Apply Now"
+NAV_RESULT = "🎓 Allotment Confirmation"
+NAV_OPTIONS = [NAV_DASHBOARD, NAV_APPLY, NAV_RESULT]
+
+
+def goto(section: str) -> None:
+    """Programmatic navigation inside the portal (used by dashboard buttons and post-submit)."""
+    st.session_state["student_nav"] = section
+
+
 PORTAL_CSS = """
 <style>
 .sw-card { border-radius:18px; padding:22px 24px; margin:6px 0 14px; border:1px solid rgba(15,23,42,.08); background:#fff; box-shadow:0 8px 24px rgba(11,31,58,.06); }
@@ -85,13 +96,31 @@ def _status(c, a):
 def render_dashboard(c, a) -> None:
     content = db.get_site_content(c)
     label, cls, detail, seat = _status(c, a)
-    st.subheader(f"Hello, {a['name']}")
-    if content.get("announcements", "").strip():
-        st.info(f"**Announcements** · {content['announcements']}")
-    st.markdown(f"<div class='sw-card {cls}'><h3>{label}</h3><p>{detail}</p></div>", unsafe_allow_html=True)
-
     applied = db.has_applied(a)
     docs_ok = bool(a["marksheet_path"]) and bool(a["scorecard_path"])
+
+    st.subheader(f"Welcome, {a['name']}!")
+    if not applied:
+        st.markdown("Please navigate to the **Apply Now** section to submit your documents and program preferences. "
+                    "Your seat can only be allocated once your application is complete.")
+    elif seat is None:
+        st.markdown("Your application is in. We will publish the allotment here and notify you by email once the admissions office runs the allocation.")
+    else:
+        st.markdown("Your allotment has been published. Open **Allotment Confirmation** to view it and download your letter.")
+
+    if content.get("announcements", "").strip():
+        st.info(f"**Announcements** · {content['announcements']}")
+
+    st.markdown(f"<div class='sw-card {cls}'><h3>Status: {label}</h3><p>{detail}</p></div>", unsafe_allow_html=True)
+
+    b1, b2, _ = st.columns([1, 1, 2])
+    if not applied:
+        b1.button("Go to Apply Now →", type="primary", key="dash_go_apply", on_click=goto, args=(NAV_APPLY,), width="stretch")
+    else:
+        b1.button("View my application", key="dash_go_apply", on_click=goto, args=(NAV_APPLY,), width="stretch")
+    b2.button("Check allotment →", key="dash_go_result", on_click=goto, args=(NAV_RESULT,), width="stretch")
+
+    st.markdown("#### Your progress")
     steps = [("Account created", True, False), ("Application submitted", applied, not applied),
              ("Documents uploaded", applied and docs_ok, applied and not docs_ok),
              ("Allotment published", seat is not None, applied and docs_ok and seat is None)]
@@ -103,11 +132,26 @@ def render_dashboard(c, a) -> None:
     k1.metric("Applicant ID", a["id"])
     k2.metric("Profile", "Complete" if a["phone"] and a["address"] else "Incomplete")
     k3.metric("Application", "Submitted" if applied else "Not started")
+
+    st.markdown("#### How the application works")
+    st.markdown(
+        "1. **Prepare your documents.** You will need a scan or photo of your 12th Board Marksheet and your CUET PG / entrance exam scorecard (PDF, PNG or JPG, up to 8 MB each).\n"
+        "2. **Fill in the Apply Now form.** Enter your entrance score and track, answer the college's additional questions, and rank up to five programs in order of preference. Your first choice carries the most weight.\n"
+        "3. **Submit once.** You receive a confirmation email (simulated in this demo) and can download a receipt. Documents can be re-uploaded later if needed.\n"
+        "4. **Wait for the allotment.** The admissions office runs the SEATWISEE engine, which assigns seats fairly by preference, eligibility and capacity. Check **Allotment Confirmation** for your result and letter."
+    )
+    with st.expander("Eligibility rules in brief"):
+        progs = db.load_programs(c)
+        for r in progs.itertuples():
+            track = r.required_track if isinstance(r.required_track, str) and r.required_track else "any track"
+            st.write(f"**{r.code}** {r.name}: minimum score {int(r.min_score)}, {track}, {int(r.capacity)} seats")
+    with st.expander("About the institute"):
+        st.write(content.get("about_us", ""))
+        st.caption(content.get("contact_info", ""))
     with st.expander("My account details"):
         st.write(f"Email: {a['email']}")
         st.write(f"Phone: {a['phone'] or '—'}")
         st.write(f"Address: {a['address'] or '—'}")
-        st.caption(content.get("contact_info", ""))
 
 
 # ---------------------------------------------------------------- B. Apply Now
@@ -201,21 +245,19 @@ def render_apply(c, a) -> None:
                f"Dear {a['name']}, your application (ID {a['id']}) with {len(ids)} ranked program(s) and both documents has been received. "
                "You will be notified when the allotment is published.")
     st.balloons()
-    st.session_state["portal_tab_hint"] = "result"
-    if st.button("Go to my dashboard", key="after_apply"):
-        st.rerun()
+    st.button("Back to Dashboard", key="after_apply", on_click=goto, args=(NAV_DASHBOARD,))
 
 
 # ---------------------------------------------------------------- C. Check Allotment Result
 def render_result(c, a) -> None:
-    st.markdown("#### Check allotment result")
+    st.markdown("#### Allotment confirmation")
     if not db.has_applied(a):
         st.warning("You have not submitted an application yet. Go to **Apply Now** first.")
         return
     run = db.get_current_run(c)
     seat = db.current_assignment_for(c, a["id"])
     if run is None or seat is None:
-        st.markdown("<div class='sw-card info'><h3>Allocation is currently in progress.</h3><p>Check back later. "
+        st.markdown("<div class='sw-card info'><h3>Pending Allocation</h3><p>Allocation is currently in progress. Check back later. "
                     "You will be notified by email when the admissions office publishes the result.</p></div>", unsafe_allow_html=True)
         return
     if seat["program_id"] is None:
@@ -237,15 +279,21 @@ def render_my_portal(c, aid: int) -> None:
     a = c.execute("SELECT * FROM applicants WHERE id = ?", (aid,)).fetchone()
     content = db.get_site_content(c)
     st.markdown(PORTAL_CSS, unsafe_allow_html=True)
+
+    if st.session_state.get("student_nav") not in NAV_OPTIONS:
+        st.session_state["student_nav"] = NAV_DASHBOARD          # post-login default: Dashboard, never the form
+    with st.sidebar:
+        st.markdown("#### Student menu")
+        section = st.radio("Student menu", NAV_OPTIONS, key="student_nav", label_visibility="collapsed")
+
     st.markdown(f"<h1 style='margin-bottom:0'>{content.get('institute_name', BRAND)}</h1>"
-                f"<p style='color:gray;margin-top:4px'>Student portal · {BRAND}</p>", unsafe_allow_html=True)
-    tab_home, tab_apply, tab_result = st.tabs(["🏠 Home / Dashboard", "📝 Apply Now", "🎓 Check Allotment Result"])
-    with tab_home:
-        render_dashboard(c, a)
-    with tab_apply:
+                f"<p style='color:gray;margin-top:4px'>Student portal · {BRAND} · {section}</p>", unsafe_allow_html=True)
+    if section == NAV_APPLY:
         render_apply(c, a)
-    with tab_result:
+    elif section == NAV_RESULT:
         render_result(c, a)
+    else:
+        render_dashboard(c, a)
 
 
 def render() -> None:

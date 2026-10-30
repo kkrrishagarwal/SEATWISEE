@@ -64,6 +64,7 @@ def render_sidebar() -> None:
             auth.logout()
             st.session_state["current_page"] = "home"
             st.session_state.pop("show_register", None)
+            st.session_state.pop("student_nav", None)
             st.rerun()
 
 
