@@ -4,10 +4,12 @@ The optimisation code never touches SQL; this module converts rows <-> ProblemDa
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import random
 import re
+import secrets
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -92,6 +94,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     wanted = {
         "form_data": "TEXT", "marksheet_path": "TEXT", "scorecard_path": "TEXT",
         "applied_at": "TEXT NOT NULL DEFAULT (datetime('now'))",
+        # pre-existing rows all carry full applications, so they migrate as 'applied'
+        "application_status": "TEXT NOT NULL DEFAULT 'applied'",
+        "password_hash": "TEXT", "phone": "TEXT", "address": "TEXT",
     }
     for col, ddl in wanted.items():
         if col not in cols:
@@ -158,8 +163,9 @@ def seed_demo(conn: sqlite3.Connection, n_applicants: int = 200, seed: int = 42)
         }
         applied_at = (base_time + timedelta(minutes=rng.randint(0, 20000))).strftime("%Y-%m-%d %H:%M:%S")
         cur.execute(
-            "INSERT INTO applicants (name, email, score, track, form_data, applied_at) VALUES (?,?,?,?,?,?)",
-            (name, email, score, track, json.dumps(form_data), applied_at),
+            "INSERT INTO applicants (name, email, score, track, form_data, applied_at, application_status, phone, address) "
+            "VALUES (?,?,?,?,?,?,'applied',?,?)",
+            (name, email, score, track, json.dumps(form_data), applied_at, form_data["phone"], form_data["city"]),
         )
         aid = cur.lastrowid
         # Simulated document paths for seeded users (files are not materialised on disk).
@@ -189,6 +195,70 @@ def seed_demo(conn: sqlite3.Connection, n_applicants: int = 200, seed: int = 42)
             )
     conn.commit()
     log_audit(conn, "system", "seed", {"applicants": n_applicants, "programs": len(PROGRAM_CATALOG), "seed": seed})
+
+
+# --------------------------------------------------------------------------- accounts & applications
+def hash_password(password: str, salt: Optional[str] = None) -> str:
+    salt = salt or secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), 120_000).hex()
+    return f"pbkdf2_sha256${salt}${digest}"
+
+
+def verify_password(stored: Optional[str], password: str) -> bool:
+    if not stored:
+        return False
+    try:
+        _algo, salt, _digest = stored.split("$", 2)
+    except ValueError:
+        return False
+    return secrets.compare_digest(hash_password(password, salt), stored)
+
+
+def register_account(conn: sqlite3.Connection, *, name: str, email: str, phone: str, address: str, password: str) -> int:
+    """Create a basic account (application_status='registered'). No educational data yet."""
+    name, email = name.strip(), email.lower().strip()
+    if not name or "@" not in email:
+        raise ValueError("name and a valid email are required")
+    if len(password) < 6:
+        raise ValueError("password must be at least 6 characters")
+    if find_applicant_by_email(conn, email):
+        raise ValueError("that email is already registered")
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO applicants (name, email, score, track, application_status, password_hash, phone, address, form_data) "
+        "VALUES (?,?,0,'',?,?,?,?,?)",
+        (name, email, "registered", hash_password(password), phone.strip(), address.strip(), json.dumps({})),
+    )
+    conn.commit()
+    log_audit(conn, "public", "account_registered", {"applicant_id": cur.lastrowid, "email": email})
+    return cur.lastrowid
+
+
+def has_applied(row) -> bool:
+    return bool(row) and row["application_status"] == "applied"
+
+
+def submit_application(
+    conn: sqlite3.Connection, applicant_id: int, *, score: int, track: str,
+    ranked_program_ids: Sequence[int], form_data: Optional[Dict[str, object]] = None,
+) -> None:
+    """Attach the educational application to an existing account and enter the allocation pool."""
+    if not ranked_program_ids:
+        raise ValueError("rank at least one program")
+    if track not in TRACKS:
+        raise ValueError("unknown track")
+    if not 0 <= int(score) <= 100:
+        raise ValueError("score must be 0-100")
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE applicants SET score = ?, track = ?, form_data = ?, application_status = 'applied', applied_at = datetime('now') WHERE id = ?",
+        (int(score), track, json.dumps(form_data or {}), applicant_id),
+    )
+    cur.execute("DELETE FROM preferences WHERE applicant_id = ?", (applicant_id,))
+    for rank, pid in enumerate(ranked_program_ids, start=1):
+        cur.execute("INSERT INTO preferences (applicant_id, program_id, rank) VALUES (?,?,?)", (applicant_id, int(pid), rank))
+    conn.commit()
+    log_audit(conn, "student", "application_submitted", {"applicant_id": applicant_id, "prefs": [int(p) for p in ranked_program_ids]})
 
 
 # --------------------------------------------------------------------------- site content (CMS)
@@ -427,7 +497,7 @@ def build_problem(conn: sqlite3.Connection, previous: Optional[Dict[int, int]] =
     applicants = [
         Applicant(id=r["id"], name=r["name"], score=r["score"], track=r["track"], status=r["status"], email=r["email"],
                   applied_at=r["applied_at"] or "")
-        for r in conn.execute("SELECT * FROM applicants ORDER BY id")
+        for r in conn.execute("SELECT * FROM applicants WHERE application_status = 'applied' ORDER BY id")
     ]
     programs = [
         Program(id=r["id"], code=r["code"], name=r["name"], capacity=r["capacity"],
@@ -519,7 +589,7 @@ def add_applicant(
 ) -> int:
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO applicants (name, email, score, track, form_data) VALUES (?,?,?,?,?)",
+        "INSERT INTO applicants (name, email, score, track, form_data, application_status) VALUES (?,?,?,?,?,'applied')",
         (name, email.lower().strip(), score, track, json.dumps(form_data or {})),
     )
     aid = cur.lastrowid

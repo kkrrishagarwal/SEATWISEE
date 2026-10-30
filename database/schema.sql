@@ -18,6 +18,12 @@ CREATE TABLE IF NOT EXISTS applicants (
     score      INTEGER NOT NULL CHECK (score BETWEEN 0 AND 100),
     track      TEXT NOT NULL,
     status     TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'withdrawn')),
+    -- account (registration) vs application: a registered account has application_status='registered'
+    -- and takes no part in allocation until it submits the educational application.
+    application_status TEXT NOT NULL DEFAULT 'registered' CHECK (application_status IN ('registered', 'applied')),
+    password_hash   TEXT,                 -- pbkdf2_sha256$<salt>$<hex>; NULL for seeded demo accounts
+    phone           TEXT,
+    address         TEXT,
     form_data       TEXT,                 -- JSON: responses to the admin-defined dynamic form
     marksheet_path  TEXT,                 -- uploads/<id>_12thMarksheet.<ext>
     scorecard_path  TEXT,                 -- uploads/<id>_EntranceScorecard.<ext>

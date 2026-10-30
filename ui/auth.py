@@ -45,10 +45,15 @@ def login_admin(user: str, password: str, conn) -> bool:
     return False
 
 
-def login_student(email: str, conn) -> bool:
+def login_student(email: str, conn, password: str = "") -> bool:
     row = db.find_applicant_by_email(conn, email)
     if row is None:
         db.log_audit(conn, "system", "login_failed", {"email": email[:80], "role": "student"})
+        return False
+    # Accounts created through the registration form carry a password hash and must present it.
+    # Seeded demo applicants have none and sign in with email only.
+    if row["password_hash"] and not db.verify_password(row["password_hash"], password or ""):
+        db.log_audit(conn, "system", "login_failed", {"email": email[:80], "role": "student", "reason": "bad_password"})
         return False
     st.session_state["auth_role"] = ROLE_STUDENT
     st.session_state["auth_student_id"] = int(row["id"])
@@ -82,4 +87,4 @@ def login_unified(identifier: str, password: str, conn) -> Optional[str]:
         return None
     if "@" not in ident:
         return ROLE_ADMIN if login_admin(ident, password, conn) else None
-    return ROLE_STUDENT if login_student(ident, conn) else None
+    return ROLE_STUDENT if login_student(ident, conn, password) else None

@@ -1,6 +1,6 @@
 # SEATWISEE  ·  public UI "DO! u want"
 
-**Gateway:** the app opens on a single unified login (Email or Username + Password) plus a *Register as New Student* button; the sidebar stays hidden until you sign in. `admin` / `admin123` → admin workspace; a registered student email (password blank) → student portal. Landing-page text is editable by the admin in the **Website Editor** tab (CMS stored in the `site_content` table). Students sign in with their registered email (e.g. `applicant001@seatwisee.demo`); new students register on the landing page with two mandatory document uploads (12th marksheet, entrance scorecard) saved to `uploads/`.
+**Gateway:** the app opens on a single unified login (Email or Username + Password) plus a *Register as New Student* button; the sidebar stays hidden until you sign in. `admin` / `admin123` → admin workspace. Students: *Register as New Student* creates an account (name, email, phone, address, password) and signs them in; the educational application (score, track, admin-defined fields, ranked preferences, 12th marksheet + entrance scorecard uploads) is completed inside the portal under **Apply Now**. Seeded demo applicants have no password and sign in with email only. Landing-page text is editable by the admin in the **Website Editor** tab (CMS stored in the `site_content` table). Students sign in with their registered email (e.g. `applicant001@seatwisee.demo`); new students register on the landing page with two mandatory document uploads (12th marksheet, entrance scorecard) saved to `uploads/`.
 
 Auditable, constraint-based seat allocation and decision support (hackathon PS06 / FAIRSHIFT).
 
@@ -13,14 +13,14 @@ Auditable, constraint-based seat allocation and decision support (hackathon PS06
 * **Persistence**: SQLite with versioned runs, capacity-change history, appeals and an append-only audit log.
 * **Dynamic forms**: admins add/remove application fields (text / number / select) in the Form Builder; responses are stored as JSON per applicant.
 * **Documents**: uploads are written under secure names (`uploads/000123_12thMarksheet.pdf`), extension-whitelisted, size-capped, path-traversal guarded; the admin can preview/download them.
-* **RBAC**: session-state login gateway; students see only their own dashboard (status, allocated program, receipt + document downloads).
+* **RBAC**: session-state login gateway; the student portal has three sections — Home / Dashboard (status + progress), Apply Now (educational form + uploads, mock email receipt), Check Allotment Result (seat card + allotment letter PDF). Accounts that have not applied are excluded from the solver pool.
 * **Admin workspace** has five tabs: Command Center (KPIs, Mode A, occupancy) · Disruptions & Appeals (capacity shocks, withdrawals, Mode B, what-if sandbox with Sankey) · Student Records & Forms · Website Editor (CMS) · Audit Trail (validator, run history, audit log).
 
 ## Run
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m database.db_manager      # (re)seed 200 applicants / 10 programs
-.venv/bin/python -m pytest -q                # 25 tests
+.venv/bin/python -m pytest -q                # 27 tests
 .venv/bin/streamlit run app.py
 ```
 

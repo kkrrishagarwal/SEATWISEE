@@ -55,11 +55,7 @@ def render() -> None:
     _, mid, _ = st.columns([1, 1.25, 1])
     with mid:
         if st.session_state.get("show_register"):
-            student = importlib.import_module("ui.1_student_portal")
-            with st.form("register_shell", border=False):
-                st.markdown("### Register as a new student")
-                st.form_submit_button("← Back to login", on_click=lambda: st.session_state.update(show_register=False))
-            student.render_registration(c, compact=True)
+            _render_account_registration(c)
             return
 
         with st.form("unified_login"):
@@ -78,3 +74,50 @@ def render() -> None:
         if st.button("Register as New Student", key="goto_register", width="stretch"):
             st.session_state["show_register"] = True
             st.rerun()
+
+
+def _render_account_registration(c) -> None:
+    """Standard website sign-up: account details only. The educational application happens inside the portal."""
+    with st.form("account_register"):
+        st.markdown("### Create your account")
+        st.caption("Takes a minute. You will complete the educational application after signing in.")
+        name = st.text_input("Full name *", key="reg_name")
+        email = st.text_input("Email *", key="reg_email")
+        phone = st.text_input("Phone number *", key="reg_phone")
+        address = st.text_area("Address *", key="reg_address", height=70)
+        p1, p2 = st.columns(2)
+        pw = p1.text_input("Password *", type="password", key="reg_pw")
+        pw2 = p2.text_input("Confirm password *", type="password", key="reg_pw2")
+        submitted = st.form_submit_button("Create account", type="primary", width="stretch")
+    if st.button("← Back to login", key="reg_back", width="stretch"):
+        st.session_state["show_register"] = False
+        st.rerun()
+    if not submitted:
+        return
+    problems = []
+    if not name.strip():
+        problems.append("Full name is required")
+    if "@" not in email:
+        problems.append("A valid email is required")
+    if not phone.strip() or not phone.strip().replace("+", "").replace(" ", "").isdigit():
+        problems.append("A valid phone number is required")
+    if not address.strip():
+        problems.append("Address is required")
+    if len(pw) < 6:
+        problems.append("Password must be at least 6 characters")
+    if pw != pw2:
+        problems.append("Passwords do not match")
+    if problems:
+        st.error("Please fix:\n\n- " + "\n- ".join(problems))
+        return
+    try:
+        db.register_account(c, name=name, email=email, phone=phone, address=address, password=pw)
+    except ValueError as e:
+        st.error(str(e))
+        return
+    st.toast("📧 Email sent: Welcome to SEATWISEE!", icon="✅")
+    st.success(f"Account created. A welcome email was sent to **{email.strip()}** (simulated). Signing you in…")
+    auth.login_student(email, c, pw)
+    st.session_state["current_page"] = "student_portal"
+    st.session_state["show_register"] = False
+    st.rerun()

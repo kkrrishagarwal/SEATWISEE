@@ -372,3 +372,41 @@ def test_unified_login_resolution(seeded_conn, monkeypatch):
     assert auth.login_unified("applicant001@seatwisee.demo", "", seeded_conn) == "student"
     assert auth.login_unified("ghost@nowhere.io", "", seeded_conn) is None
     assert auth.login_unified("", "", seeded_conn) is None
+
+
+# ----------------------------------------------------------------------------- accounts vs applications
+def test_register_then_apply_enters_pool(seeded_conn, monkeypatch, tmp_path):
+    conn = seeded_conn
+    monkeypatch.setattr(db, "UPLOAD_DIR", tmp_path / "uploads")
+    aid = db.register_account(conn, name="Onboard Test", email="onboard@test.io", phone="9876543210", address="Pune", password="hunter2")
+    row = db.find_applicant_by_email(conn, "onboard@test.io")
+    assert row["application_status"] == "registered" and not db.has_applied(row)
+    assert db.verify_password(row["password_hash"], "hunter2") and not db.verify_password(row["password_hash"], "wrong")
+    assert aid not in db.build_problem(conn, previous={}).applicant_ids      # no application -> not in solver pool
+    with pytest.raises(ValueError):
+        db.register_account(conn, name="Dup", email="onboard@test.io", phone="1", address="x", password="hunter2")
+    with pytest.raises(ValueError):
+        db.register_account(conn, name="Short", email="s@s.io", phone="1", address="x", password="123")
+    with pytest.raises(ValueError):
+        db.submit_application(conn, aid, score=70, track="Engineering", ranked_program_ids=[])
+    db.save_document(conn, aid, "marksheet", "m.pdf", b"%PDF-1.4 x")
+    db.save_document(conn, aid, "scorecard", "s.pdf", b"%PDF-1.4 y")
+    db.submit_application(conn, aid, score=81, track="Engineering", ranked_program_ids=[1, 2, 3], form_data={"city": "Pune"})
+    row = db.find_applicant_by_email(conn, "onboard@test.io")
+    assert db.has_applied(row) and row["score"] == 81 and row["track"] == "Engineering"
+    p = db.build_problem(conn, previous={})
+    assert aid in p.applicant_ids and p.pref_rank[(aid, 1)] == 1 and p.pref_rank[(aid, 3)] == 3
+    res = solve_initial(p)
+    assert res.status == "OPTIMAL" and validate(p, res.assignment).ok
+    actions = set(db.load_audit(conn).action)
+    assert {"account_registered", "application_submitted"} <= actions
+
+
+def test_student_login_requires_password_when_account_has_one(seeded_conn, monkeypatch):
+    from ui import auth
+    monkeypatch.setattr(auth.st, "session_state", {}, raising=False)
+    db.register_account(seeded_conn, name="PW Test", email="pw@test.io", phone="1", address="x", password="secret9")
+    assert auth.login_unified("pw@test.io", "secret9", seeded_conn) == "student"
+    assert auth.login_unified("pw@test.io", "", seeded_conn) is None
+    assert auth.login_unified("pw@test.io", "nope", seeded_conn) is None
+    assert auth.login_unified("applicant002@seatwisee.demo", "", seeded_conn) == "student"   # seeded: no password

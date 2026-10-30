@@ -223,7 +223,7 @@ def _student_records(c):
         view = view[view.marksheet_on_disk | view.scorecard_on_disk]
     elif docs == "Simulated / missing":
         view = view[~(view.marksheet_on_disk & view.scorecard_on_disk)]
-    show = view[["id", "name", "email", "score", "track", "status", "Allocated", "applied_at"] + dyn_cols +
+    show = view[["id", "name", "email", "application_status", "score", "track", "status", "Allocated", "applied_at", "phone"] + dyn_cols +
                 ["marksheet_on_disk", "scorecard_on_disk"]].rename(columns={"marksheet_on_disk": "Marksheet file", "scorecard_on_disk": "Scorecard file"})
     st.dataframe(show, hide_index=True, width="stretch", height=360,
                  column_config={"Marksheet file": st.column_config.CheckboxColumn(), "Scorecard file": st.column_config.CheckboxColumn()})
