@@ -6,13 +6,15 @@ from collections import Counter
 from typing import Dict, Optional
 
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
 
 from database import db_manager as db
-from optimization.cp_sat_model import SolveResult, solve_initial, solve_reassign
 from optimization.problem import ProblemData
-from optimization.validator import validate
+
+
+def _go():
+    import plotly.graph_objects as go
+    return go
 
 BRAND = "DO! u want"
 SYSTEM = "SEATWISEE"
@@ -30,8 +32,10 @@ def status_badge(status: str, explanation: str = "") -> None:
     st.markdown(f":{color}[**{status}**] {explanation}")
 
 
-def run_and_persist(mode: str, notes: str = "", mu: int = 1000, time_limit: float = 20.0) -> tuple[SolveResult, Optional[int], ProblemData]:
+def run_and_persist(mode: str, notes: str = "", mu: int = 1000, time_limit: float = 20.0):
     """Solve against live DB state, validate independently, persist only if the validator agrees."""
+    from optimization.cp_sat_model import solve_initial, solve_reassign
+    from optimization.validator import validate
     c = conn()
     problem = db.build_problem(c, previous={} if mode == "initial" else None)
     res = solve_initial(problem, time_limit_s=time_limit) if mode == "initial" else solve_reassign(problem, mu=mu, time_limit_s=time_limit)
@@ -57,7 +61,8 @@ def program_labels(problem: ProblemData) -> Dict[Optional[int], str]:
     return labels
 
 
-def sankey_displacement(problem: ProblemData, before: Dict[int, int], after: Dict[int, int], title: str = "Where did people move?") -> go.Figure:
+def sankey_displacement(problem: ProblemData, before: Dict[int, int], after: Dict[int, int], title: str = "Where did people move?"):
+    go = _go()
     """Sankey: left = program before, right = program after. Only applicants whose seat changed."""
     labels = program_labels(problem)
     moved = {a: (before.get(a), after.get(a)) for a in set(before) | set(after) if before.get(a) != after.get(a)}
@@ -84,7 +89,8 @@ def sankey_displacement(problem: ProblemData, before: Dict[int, int], after: Dic
     return fig
 
 
-def occupancy_chart(problem: ProblemData, assignment: Dict[int, int]) -> go.Figure:
+def occupancy_chart(problem: ProblemData, assignment: Dict[int, int]):
+    go = _go()
     used = Counter(assignment.values())
     codes = [p.code for p in problem.programs]
     fig = go.Figure()
@@ -94,7 +100,8 @@ def occupancy_chart(problem: ProblemData, assignment: Dict[int, int]) -> go.Figu
     return fig
 
 
-def rank_chart(res: SolveResult) -> go.Figure:
+def rank_chart(res):
+    go = _go()
     hist = res.rank_histogram
     fig = go.Figure(go.Bar(x=[f"Choice #{k}" for k in hist], y=list(hist.values()), text=list(hist.values()), textposition="auto"))
     fig.update_layout(height=300, title="Preference satisfaction (which choice did applicants get?)", margin=dict(l=10, r=10, t=40, b=10))

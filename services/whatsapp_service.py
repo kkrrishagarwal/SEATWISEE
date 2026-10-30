@@ -15,9 +15,16 @@ import os
 import re
 from typing import Optional, Tuple
 
-import requests
 
 REQUIRED = ("WHATSAPP_TOKEN", "WHATSAPP_PHONE_NUMBER_ID")
+
+
+def __getattr__(name):            # lazy module attribute so tests can monkeypatch `requests`
+    if name == "requests":
+        import requests as _r
+        globals()["requests"] = _r
+        return _r
+    raise AttributeError(name)
 
 
 def _get(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -68,6 +75,7 @@ def send_whatsapp(phone: str, text: str, timeout: int = 20) -> Tuple[str, str]:
                                 "components": [{"type": "body", "parameters": [{"type": "text", "text": text[:1024]}]}]}}
     else:
         payload = {"messaging_product": "whatsapp", "to": to, "type": "text", "text": {"preview_url": False, "body": text[:4096]}}
+    requests = globals().get("requests") or __getattr__("requests")
     try:
         r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout)
     except requests.RequestException as e:
