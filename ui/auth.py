@@ -88,3 +88,12 @@ def login_unified(identifier: str, password: str, conn) -> Optional[str]:
     if "@" not in ident:
         return ROLE_ADMIN if login_admin(ident, password, conn) else None
     return ROLE_STUDENT if login_student(ident, conn, password) else None
+
+
+def full_logout() -> None:
+    """Sign out and clear every navigation/intent key so the next run lands on the public home page."""
+    logout()
+    for k in ("current_page", "show_register", "show_forgot", "student_nav", "admin_nav", "post_login_intent", "apply_intent", "apply_intent_program", "auth_admin_id",
+              "al_out", "rw_out", "rc_out", "ap_cf", "apply_review"):
+        st.session_state.pop(k, None)
+    st.session_state["current_page"] = "home"

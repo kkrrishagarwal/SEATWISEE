@@ -12,6 +12,10 @@ import streamlit as st
 
 from database import db_manager as db
 from services import notification_service as ns
+from ui import auth
+from ui import design as ds
+from ui.common import BRAND
+from ui.design import esc
 
 
 class _Lazy:
@@ -41,9 +45,15 @@ def rank_chart(*a, **k): return _cm.rank_chart(*a, **k)
 def sankey_displacement(*a, **k): return _cm.sankey_displacement(*a, **k)
 def status_badge(*a, **k): return _cm.status_badge(*a, **k)
 
-SECTIONS = ["📊 Overview", "🎓 Program Management", "📥 All Applications", "✅ Selected Candidates", "⚙️ Allocation Management",
-            "🔄 Reallocation Management", "⚖️ Appeals", "📈 Analytics", "🔔 Notifications", "📣 Announcements", "🧾 Audit History", "🛠 Settings",
-            "🚪 Withdrawals"]
+SECTIONS = [":material/dashboard: Overview", ":material/school: Program Management", ":material/inbox: All Applications", ":material/verified: Selected Candidates",
+            ":material/tune: Allocation Management", ":material/sync_alt: Reallocation Management", ":material/balance: Appeals", ":material/monitoring: Analytics",
+            ":material/notifications: Notifications", ":material/campaign: Announcements", ":material/history: Audit History", ":material/settings: Settings",
+            ":material/logout: Withdrawals"]
+LOGO = "app/static/images/logo.png"
+
+
+def _plain(nav: str) -> str:
+    return nav.split(" ", 1)[1] if nav.startswith(":material/") else nav
 # Sidebar groups (4 expanders) — every entry must be a member of SECTIONS.
 NAV_GROUPS = [
     ("🧭 Command Center", [SECTIONS[0], SECTIONS[4], SECTIONS[5], SECTIONS[7]]),
@@ -69,21 +79,14 @@ def render_sidebar_nav() -> str:
     current = st.session_state.get("admin_nav")
     if current not in SECTIONS:
         current = SECTIONS[0]; st.session_state["admin_nav"] = current
-    st.markdown("#### Admin menu")
     for (title, options), gk in zip(NAV_GROUPS, _GROUP_KEYS):
         st.session_state[gk] = current if current in options else None
         with st.expander(title, expanded=current in options):
             st.radio(title, options, index=None, key=gk, on_change=_nav_changed, args=(gk,), label_visibility="collapsed")
     return current
 
-CSS = """<style>
-.ad-card { border-radius:16px; padding:16px 18px; background:#fff; border:1px solid rgba(15,23,42,.08); box-shadow:0 8px 24px rgba(11,31,58,.06); }
-.ad-card b { display:block; font-size:1.7rem; font-weight:900; color:#0B1F3A; } .ad-card span { color:#64748B; font-size:.82rem; font-weight:600; letter-spacing:.4px; text-transform:uppercase; }
-</style>"""
-
-
-def _card(col, label, value):
-    col.markdown(f"<div class='ad-card'><b>{value}</b><span>{label}</span></div>", unsafe_allow_html=True)
+def goto(section: str) -> None:
+    st.session_state["admin_nav"] = section
 
 
 def _publish_feedback(out):
@@ -96,7 +99,7 @@ def _publish_feedback(out):
             cmp = out.comparison
             c1, c2, c3, c4 = st.columns(4)
             c1.metric("Moved", cmp["moved_count"]); c2.metric("Newly seated", len(cmp["newly_seated"])); c3.metric("Lost seat", len(cmp["lost_seat"])); c4.metric("Preference Δ", cmp["points_delta"])
-            st.plotly_chart(sankey_displacement(out.problem, out.problem.previous, out.solve.assignment), width="stretch", key=f"sk_{out.run_id}")
+            st.plotly_chart(ds.plotly_style(sankey_displacement(out.problem, out.problem.previous, out.solve.assignment)), width="stretch", key=f"sk_{out.run_id}")
     else:
         st.error(out.message)
         if out.validation and not out.validation.ok:
@@ -112,21 +115,44 @@ def sec_overview(c):
     withdrawn = c.execute("SELECT COUNT(*) FROM applicants WHERE status='withdrawn'").fetchone()[0]
     pending_appeals = c.execute("SELECT COUNT(*) FROM appeals WHERE decision IN ('submitted','evaluated')").fetchone()[0]
     pending_wd = c.execute("SELECT COUNT(*) FROM withdrawals WHERE status='requested'").fetchone()[0]
+    unverified = c.execute("SELECT COUNT(*) FROM applicants WHERE application_status='applied' AND eligibility_status='pending'").fetchone()[0]
     run = db.get_current_run(c)
-    r1 = st.columns(5); r2 = st.columns(5)
-    _card(r1[0], "Registered students", total); _card(r1[1], "Applications", applied); _card(r1[2], "Programs", len(programs))
-    _card(r1[3], "Total seats", int(programs.capacity.sum())); _card(r1[4], "Allocated", offers.get("provisional", 0) + offers.get("confirmed", 0))
-    _card(r2[0], "Confirmed", offers.get("confirmed", 0)); _card(r2[1], "Waitlisted", offers.get("waitlisted", 0)); _card(r2[2], "Withdrawn", withdrawn)
-    _card(r2[3], "Pending appeals", pending_appeals); _card(r2[4], "Pending withdrawals", pending_wd)
-    st.markdown("")
+    ds.kpis([("Registered students", total, "v"), ("Applications", applied, ""), ("Programs", len(programs), "b"), ("Total seats", int(programs.capacity.sum()), "b"),
+             ("Allocated", offers.get("provisional", 0) + offers.get("confirmed", 0), ""), ("Confirmed", offers.get("confirmed", 0), "g"), ("Waitlisted", offers.get("waitlisted", 0), "a"),
+             ("Withdrawn", withdrawn, "r"), ("Pending appeals", pending_appeals, "a"), ("Pending withdrawals", pending_wd, "a")])
     if db.admin_uses_default_password(c):
         st.warning("The administrator account still uses the default password. Change it under Settings.")
-    if run:
-        st.info(f"Current allocation: version **#{run['id']}** · {run['mode']} · solver status {run['solver_status']} · {run['created_at']}")
-        problem = db.build_problem(c); st.plotly_chart(occupancy_chart(problem, dict(problem.previous)), width="stretch", key="ov_occ")
-    else:
-        st.info("No allocation has been published yet. Go to Allocation Management.")
-    st.markdown("**Recent activity**"); st.dataframe(db.load_audit(c, 12), hide_index=True, width="stretch")
+    left, right = st.columns([1.7, 1], gap="medium")
+    with left:
+        with ds.card("Allocation status", icon="layers"):
+            if run:
+                ds.facts([("Current version", f"#{run['id']}"), ("Mode", run["mode"]), ("Solver status", run["solver_status"]), ("Seated", run["assigned_count"]), ("Published", str(run["created_at"])[:16])])
+                problem = db.build_problem(c); st.plotly_chart(ds.plotly_style(occupancy_chart(problem, dict(problem.previous)), 360), width="stretch", key="ov_occ")
+            else:
+                st.info("No allocation has been published yet. Go to Allocation Management.")
+                st.button("Open Allocation Management", key="ov_go_alloc", type="primary", on_click=goto, args=(SECTIONS[4],))
+        with ds.card("Program-wise seats", "Allocated versus vacant seats in the current version", icon="cap"):
+            cur = db.get_current_assignment_map(c); used = Counter(cur.values())
+            tbl = pd.DataFrame([{"Program": r.code, "Name": r.name, "Capacity": int(r.capacity), "Allocated": used.get(int(r.id), 0), "Vacant": int(r.capacity) - used.get(int(r.id), 0),
+                                 "Min score": int(r.min_score), "Track": r.required_track if isinstance(r.required_track, str) and r.required_track else "Any"} for r in programs.itertuples()])
+            st.dataframe(tbl, hide_index=True, width="stretch")
+    with right:
+        with ds.card("Pending administrative tasks", icon="alert"):
+            tasks = [(pending_wd, "withdrawal request(s) awaiting authorisation", SECTIONS[12]), (pending_appeals, "appeal(s) awaiting a decision", SECTIONS[6]),
+                     (unverified, "submitted application(s) with eligibility not yet verified", SECTIONS[2])]
+            if not any(n for n, _, _ in tasks):
+                st.success("Nothing pending.")
+            for i, (n, label, target) in enumerate(tasks):
+                if n:
+                    st.html(f"<div class='sw-upnext' style='margin-bottom:8px'><span class='ic' style='width:40px;height:40px;background:#FEF3C7;color:#B45309'>{ds.ICONS['alert']}</span><div><h4 style='font-size:.95rem'>{n} {esc(label)}</h4></div></div>")
+                    st.button(f"Open {_plain(target)}", key=f"ov_task_{i}", on_click=goto, args=(target,), width="stretch")
+        with ds.card("Recent applications", icon="inbox"):
+            rec = pd.read_sql_query("SELECT id, name, applied_at, eligibility_status FROM applicants WHERE application_status='applied' ORDER BY applied_at DESC LIMIT 6", c)
+            if rec.empty: st.caption("No applications yet.")
+            else:
+                st.html("<ul class='sw-list'>" + "".join(f"<li><b>{esc(r.name)} <small>{db.app_id(int(r.id))}</small></b><small>{esc(str(r.applied_at)[:16])} · </small>{ds.pill(r.eligibility_status, {'eligible': 'ok', 'ineligible': 'bad'}.get(r.eligibility_status, 'muted'))}</li>" for r in rec.itertuples()) + "</ul>")
+    with ds.card("Recent activity", "Latest entries of the append-only audit log", icon="clock"):
+        st.dataframe(db.load_audit(c, 12), hide_index=True, width="stretch")
 
 
 # ====================================================================== 2 Program Management
@@ -135,8 +161,12 @@ def sec_programs(c):
     cur = db.get_current_assignment_map(c); used = Counter(cur.values())
     view = programs.copy(); view["allocated"] = view.id.map(lambda i: used.get(int(i), 0)); view["vacant"] = view.capacity - view.allocated
     view["applications"] = view.id.map(lambda i: c.execute("SELECT COUNT(*) FROM preferences WHERE program_id=?", (int(i),)).fetchone()[0])
-    st.dataframe(view[["id", "code", "name", "department", "duration", "capacity", "allocated", "vacant", "min_score", "required_track", "is_open", "applications"]], hide_index=True, width="stretch")
-    st.markdown("#### Add or edit a program")
+    q = st.text_input("Search programs", key="pm_q", placeholder="code, name or department")
+    if q: view = view[view.code.str.contains(q, case=False) | view.name.str.contains(q, case=False) | view.department.fillna("").str.contains(q, case=False)]
+    ds.kpis([("Programs", len(programs), "v"), ("Open for applications", int(programs.is_open.fillna(1).astype(int).sum()), "g"), ("Total seats", int(programs.capacity.sum()), "b"), ("Vacant seats", int(view.vacant.sum()), "a")])
+    with ds.card("Programs", f"{len(view)} program(s)", icon="cap"):
+        st.dataframe(view[["id", "code", "name", "department", "duration", "capacity", "allocated", "vacant", "min_score", "required_track", "is_open", "applications"]], hide_index=True, width="stretch")
+    ds.section("Add or edit a program", "Capacity changes are recorded and should be followed by a reallocation")
     labels = {"— new program —": None} | {f"{r.code} · {r.name}": int(r.id) for r in programs.itertuples()}
     pick = st.selectbox("Program", list(labels), key="pm_pick"); pid = labels[pick]
     row = programs[programs.id == pid].iloc[0] if pid else None
@@ -182,6 +212,9 @@ def _applications_df(c) -> pd.DataFrame:
 
 def sec_applications(c):
     df = _applications_df(c)
+    ds.kpis([("Accounts", len(df), "v"), ("Submitted", int((df.application_status == "applied").sum()), ""), ("Eligible", int((df.eligibility_status == "eligible").sum()), "g"),
+             ("Ineligible", int((df.eligibility_status == "ineligible").sum()), "r"), ("Pending check", int(((df.application_status == "applied") & (df.eligibility_status == "pending")).sum()), "a")])
+    ds.section("Filters")
     f1, f2, f3, f4 = st.columns(4)
     q = f1.text_input("Applicant name / Application ID / email", key="aa_q")
     prog = f2.multiselect("Program (ranked or allocated)", sorted(db.load_programs(c).code), key="aa_prog")
@@ -208,18 +241,19 @@ def sec_applications(c):
     e2.download_button("⬇ PDF", dataframe_pdf(v[cols], "All applications", f"{len(v)} records"), "applications.pdf", "application/pdf", key="aa_pdf", width="stretch")
     if e3.button("Verify eligibility for all", key="aa_verify", width="stretch"):
         st.success(f"Eligibility verified: {aps.verify_all_eligibility(c)}"); st.rerun()
-    st.markdown("#### Application details")
+    ds.section("Application details", "Contact, preferences, documents, tracking and notification history")
     labels = {f"{r['Application ID']} · {r['name']}": int(r["id"]) for _, r in v.iterrows()}
     if labels:
         pick = st.selectbox("Open", list(labels), key="aa_pick"); aid = labels[pick]
         row = c.execute("SELECT * FROM applicants WHERE id=?", (aid,)).fetchone()
         l, r = st.columns(2)
-        with l:
-            st.write(f"**{row['name']}** · {row['email']} · {row['phone'] or '—'}"); st.write(f"Address: {row['address'] or '—'}")
-            st.write(f"Score {row['score']} · {row['track']} · eligibility {row['eligibility_status']} · offer {row['offer_status']} · {row['status']}")
+        with l, ds.card(row["name"], f"{row['email']} · {row['phone'] or '—'}", icon="user"):
+            st.write(f"Address: {row['address'] or '—'}")
+            ds.facts([("Score", row["score"]), ("Track", row["track"]), ("Eligibility", row["eligibility_status"]), ("Offer", row["offer_status"]), ("Status", row["status"])])
             st.json(json.loads(row["form_data"] or "{}"), expanded=False)
-            st.write("Tracking: " + " → ".join(f"{'✅' if d else '⬜'} {n}" for n, d in aps.tracking(c, row)))
-        with r:
+            stages = aps.tracking(c, row); first_open = next((i for i, (_, d) in enumerate(stages) if not d), None)
+            ds.timeline([(n, "completed" if d else "pending", "d" if d else ("n" if i == first_open else "")) for i, (n, d) in enumerate(stages)])
+        with r, ds.card("Documents and notifications", icon="file"):
             for rel, title in ((row["marksheet_path"], "12th Board Marksheet"), (row["scorecard_path"], "Entrance Scorecard")):
                 p = db.resolve_document(rel)
                 if p is not None: st.download_button(f"⬇ {title}", p.read_bytes(), p.name, key=f"aa_dl_{title}_{aid}")
@@ -239,7 +273,10 @@ def sec_selected(c):
                              "Waitlisted (ranked it)": c.execute("""SELECT COUNT(*) FROM preferences pr JOIN applicants a ON a.id=pr.applicant_id
                                 WHERE pr.program_id=? AND a.offer_status='waitlisted' AND a.status='active'""", (int(r.id),)).fetchone()[0]}
                             for _, r in programs.iterrows()])
-    st.dataframe(summary, hide_index=True, width="stretch")
+    ds.kpis([("Allocated", int(summary.Allocated.sum()), ""), ("Confirmed", int(summary.Confirmed.sum()), "g"), ("Vacant", int(summary.Vacant.sum()), "a"), ("Version", f"#{run['id']}", "v")])
+    with ds.card("Program summary", icon="cap"):
+        st.dataframe(summary, hide_index=True, width="stretch")
+    ds.section("Candidates by program")
     pick = st.selectbox("Program", [f"{r.code} · {r['name']}" for _, r in programs.iterrows()], key="sc_prog")
     code = pick.split(" · ")[0]; pid = int(programs[programs.code == code].iloc[0].id)
     rows = pd.read_sql_query("""SELECT ap.id, ap.name, ap.email, ap.phone, ap.score, ap.track, a.rank_obtained AS preference, ap.offer_status
@@ -264,13 +301,15 @@ def sec_selected(c):
 # ====================================================================== 5 Allocation Management
 def sec_allocation(c):
     settings = db.get_settings(c)
-    st.markdown(f"Policy in force: **{settings['objective_mode']}** · max preferences {settings['max_preferences']} · confirmed seats locked: {'yes' if settings['lock_confirmed_seats']=='1' else 'no'} (change under Settings)")
     run = db.get_current_run(c)
-    if run: st.info(f"Current version #{run['id']} · {run['mode']} · {run['solver_status']} · {run['assigned_count']} seated · {run['created_at']}")
-    c1, c2 = st.columns([1, 2])
-    with c1:
+    ds.kpis([("Policy", settings["objective_mode"].replace("_", " "), "v"), ("Max preferences", settings["max_preferences"], ""), ("Confirmed seats locked", "yes" if settings["lock_confirmed_seats"] == "1" else "no", "g"),
+             ("Offer window", f"{settings['offer_accept_days']} days", "b"), ("Current version", f"#{run['id']}" if run else "none", ""), ("Solver status", run["solver_status"] if run else "—", "g" if run and run["solver_status"] == "OPTIMAL" else "a")])
+    st.caption("Policy and acceptance window are configured under Settings.")
+    c1, c2 = st.columns([1, 2], gap="medium")
+    with c1, ds.card("Run allocation", "Solves, validates independently, then publishes a new version", icon="layers"):
         tl = st.slider("Time limit (s)", 1, 60, 20, key="al_tl")
-        if st.button("▶ Run initial allocation", type="primary", key="al_run", width="stretch"):
+        sure = st.checkbox("I understand this publishes a new allocation version and notifies applicants", key="al_sure")
+        if st.button("▶ Run initial allocation", type="primary", key="al_run", width="stretch", disabled=not sure):
             with st.spinner("Allocating…"):
                 st.session_state["al_out"] = re_.run_initial(c, time_limit_s=tl)
             st.rerun()
@@ -280,22 +319,30 @@ def sec_allocation(c):
                 r = ns.notify(c, a, "provisional_offer", {"program": db.load_programs(c).set_index("id").loc[p, "code"]}, dedupe=f"offer_resend:{run['id']}")
                 n += r.get("in_app") == "sent"
             st.success(f"Queued for {n} applicants (duplicates skipped).")
-    with c2:
+    with c2, ds.card("Allocation outcome", icon="check"):
         out = st.session_state.get("al_out")
         if out: _publish_feedback(out)
         if run:
-            problem = db.build_problem(c); st.plotly_chart(rank_chart(type("R", (), {"rank_histogram": re_.technical_summary(c)["rank_histogram"]})()), width="stretch", key="al_rank")
+            ts = re_.technical_summary(c)
+            ds.facts([("Seated", ts.get("seated", run["assigned_count"])), ("Vacant seats", ts.get("vacant_seats", "—")), ("Fill rate", f"{100 * ts['fill_rate']:.0f}%" if "fill_rate" in ts else "—"),
+                      ("First choice", f"{100 * ts['first_choice_rate']:.0f}%" if "first_choice_rate" in ts else "—")])
+            st.plotly_chart(ds.plotly_style(rank_chart(type("R", (), {"rank_histogram": ts["rank_histogram"]})()), 320), width="stretch", key="al_rank")
+        elif not out:
+            st.info("No allocation published yet.")
     with st.expander("Technical allocation summary (administrators)"):
         st.json(re_.technical_summary(c) if run else {"info": "no run"})
         if run:
             problem = db.build_problem(c); rep = validate(problem, dict(problem.previous))
             st.success("Independent validation: PASS — " + ", ".join(rep.checks_run)) if rep.ok else st.error(f"Validation: {len(rep.violations)} violation(s) — reallocate")
-    st.markdown("**Allocation versions**"); st.dataframe(db.load_runs(c)[["id", "mode", "solver_status", "assigned_count", "reassigned_count", "preference_score", "created_at", "notes"]], hide_index=True, width="stretch")
+    with ds.card("Allocation history", icon="clock"):
+        st.dataframe(db.load_runs(c)[["id", "mode", "solver_status", "assigned_count", "reassigned_count", "preference_score", "created_at", "notes"]], hide_index=True, width="stretch")
 
 
 # ====================================================================== 6 Reallocation Management
 def sec_withdrawals(c):
-    st.markdown("#### Withdrawal requests")
+    pending = db.load_withdrawals(c, "requested"); allw = db.load_withdrawals(c)
+    ds.kpis([("Awaiting authorisation", len(pending), "a"), ("Approved", int((allw.status == "approved").sum()) if len(allw) else 0, "g"), ("Rejected", int((allw.status == "rejected").sum()) if len(allw) else 0, "r")])
+    ds.section("Withdrawal requests", "Authorising releases the seat and immediately re-runs the minimal-disruption reallocation")
     pending = db.load_withdrawals(c, "requested")
     if pending.empty: st.info("No pending withdrawal requests.")
     else:
@@ -315,7 +362,10 @@ def sec_withdrawals(c):
 
 
 def sec_reallocation(c):
-    st.markdown("#### Capacity changes")
+    run = db.get_current_run(c); runs = db.load_runs(c)
+    ds.kpis([("Current version", f"#{run['id']}" if run else "none", "v"), ("Reallocation runs", int((runs["mode"] != "initial").sum()) if len(runs) else 0, ""),
+             ("Moved in last version", run["reassigned_count"] if run else 0, "a"), ("Pending withdrawals", len(db.load_withdrawals(c, "requested")), "a")])
+    ds.section("Capacity changes", "Recorded with a reason, then the engine reallocates with minimal disruption")
     programs = db.load_programs(c)
     c1, c2, c3 = st.columns(3)
     sel = c1.selectbox("Program", programs.code.tolist(), key="rc_prog"); row = programs[programs.code == sel].iloc[0]
@@ -325,7 +375,7 @@ def sec_reallocation(c):
             st.session_state["rc_out"] = re_.change_capacity(c, int(row.id), int(newcap), reason)
         st.rerun()
     if "rc_out" in st.session_state: _publish_feedback(st.session_state["rc_out"])
-    st.divider(); st.markdown("#### Vacancies")
+    ds.section("Vacancies and eligible waitlisted candidates", "Why a seat is empty and who could fill it")
     rep = re_.vacancy_report(c)
     if rep: st.dataframe(pd.DataFrame(rep), hide_index=True, width="stretch")
     else: st.success("No vacant seats, or no allocation yet.")
@@ -339,6 +389,7 @@ def sec_reallocation(c):
 # ====================================================================== 7 Appeals
 def sec_appeals(c):
     df = aps.load_appeals_full(c)
+    ds.kpis([("Appeals", len(df), "v"), ("Open", int(df.decision.isin(["submitted", "evaluated"]).sum()) if len(df) else 0, "a"), ("Accepted", int((df.decision == "accepted").sum()) if len(df) else 0, "g"), ("Rejected", int((df.decision == "rejected").sum()) if len(df) else 0, "r")])
     st.dataframe(df[["id", "created_at", "source", "applicant", "current_program", "requested", "reason", "solver_status", "feasible", "displaced_count", "decision"]], hide_index=True, width="stretch", height=260)
     open_ = df[df.decision.isin(["submitted", "evaluated"])]
     if open_.empty: st.info("No appeals awaiting a decision."); return
@@ -356,7 +407,7 @@ def sec_appeals(c):
         if cf.feasible:
             m = cf.metrics; k = st.columns(5)
             k[0].metric("Feasible", "Yes"); k[1].metric("Others affected", cf.displaced_count); k[2].metric("Preference Δ", m["points_delta"]); k[3].metric("Seated Δ", m["after_assigned"] - m["before_assigned"]); k[4].metric("Validator", "PASS" if cf.validation.ok else "FAIL")
-            st.plotly_chart(sankey_displacement(problem, cf.baseline, cf.alternative, "Effect of granting this appeal"), width="stretch", key="ap_sankey")
+            st.plotly_chart(ds.plotly_style(sankey_displacement(problem, cf.baseline, cf.alternative, "Effect of granting this appeal")), width="stretch", key="ap_sankey")
             util = Counter(cf.alternative.values()); st.caption("Resulting utilisation: " + ", ".join(f"{p.code} {util.get(p.id,0)}/{p.capacity}" for p in problem.programs))
             st.dataframe(pd.DataFrame([{"Applicant": f"{r.name} ({db.app_id(r.applicant_id)})", "Role": r.kind, "Before": r.before_program, "After": r.after_program, "Δ points": r.points_delta} for r in cf.ripple]), hide_index=True, width="stretch")
         st.download_button("⬇ Appeal evaluation (PDF)", appeal_pdf(problem, cf, ap.applicant, ap.requested), f"appeal_{apid}.pdf", "application/pdf", key="ap_pdf")
@@ -375,26 +426,37 @@ def sec_analytics(c):
     if db.get_setting(c, "demo_mode") == "1": st.caption("Demonstration mode: applicant data is synthetic; charts are computed live from the database.")
     prefs = db.load_preferences(c)
     dist = prefs[prefs["rank"] == 1].groupby("code").size().reindex(programs.code, fill_value=0).reset_index(name="first-choice applications")
-    st.plotly_chart(px.bar(dist, x="code", y="first-choice applications", title="Application distribution (first choice)"), width="stretch", key="an_dist")
+    ap = aps.load_appeals_full(c); w = db.load_withdrawals(c); runs_all = db.load_runs(c)
+    ds.kpis([("Applications", int(c.execute("SELECT COUNT(*) FROM applicants WHERE application_status='applied'").fetchone()[0]), "v"), ("Appeals", len(ap), ""), ("Appeals accepted", int((ap.decision == "accepted").sum()) if len(ap) else 0, "g"),
+             ("Withdrawals approved", int((w.status == "approved").sum()) if len(w) else 0, "r"), ("Allocation versions", len(runs_all), "b")])
+    a0, b0 = st.columns(2)
+    a0.plotly_chart(ds.plotly_style(px.bar(dist, x="code", y="first-choice applications", title="Application distribution (first choice)"), 340), width="stretch", key="an_dist")
+    tracks = pd.DataFrame(c.execute("SELECT track, COUNT(*) n FROM applicants WHERE application_status='applied' GROUP BY track").fetchall(), columns=["track", "n"])
+    b0.plotly_chart(ds.plotly_style(px.pie(tracks, names="track", values="n", title="Applicants by academic track", hole=.55), 340), width="stretch", key="an_tracks")
     if run:
         used = Counter(cur.values()); seats = pd.DataFrame([{"Program": r.code, "Allocated": used.get(int(r.id), 0), "Vacant": max(0, int(r.capacity) - used.get(int(r.id), 0))} for r in programs.itertuples()])
         fig = go.Figure(); fig.add_bar(name="Allocated", x=seats.Program, y=seats.Allocated); fig.add_bar(name="Vacant", x=seats.Program, y=seats.Vacant); fig.update_layout(barmode="stack", title="Program-wise seat utilisation")
-        st.plotly_chart(fig, width="stretch", key="an_util")
+        st.plotly_chart(ds.plotly_style(fig, 340), width="stretch", key="an_util")
         offers = pd.DataFrame(c.execute("SELECT offer_status, COUNT(*) n FROM applicants WHERE status='active' AND application_status='applied' GROUP BY offer_status").fetchall(), columns=["status", "n"])
         a, b = st.columns(2)
-        a.plotly_chart(px.pie(offers, names="status", values="n", title="Selected · confirmed · waitlisted"), width="stretch", key="an_offers")
+        a.plotly_chart(ds.plotly_style(px.pie(offers, names="status", values="n", title="Selected · confirmed · waitlisted", hole=.55), 340), width="stretch", key="an_offers")
         hist = re_.technical_summary(c)["rank_histogram"]
-        b.plotly_chart(px.bar(x=[f"Choice #{k}" for k in hist], y=list(hist.values()), title="Preference satisfaction"), width="stretch", key="an_pref")
+        b.plotly_chart(ds.plotly_style(px.bar(x=[f"Choice #{k}" for k in hist], y=list(hist.values()), title="Preference satisfaction", labels={"x": "", "y": "applicants"}), 340), width="stretch", key="an_pref")
         runs = db.load_runs(c).sort_values("id")
-        st.plotly_chart(px.line(runs, x="id", y="reassigned_count", markers=True, title="Reallocation statistics (applicants moved per version)"), width="stretch", key="an_realloc")
-    ap = aps.load_appeals_full(c)
-    w = db.load_withdrawals(c)
-    k = st.columns(4); k[0].metric("Appeals", len(ap)); k[1].metric("Appeals accepted", int((ap.decision == "accepted").sum()) if len(ap) else 0); k[2].metric("Withdrawals approved", int((w.status == "approved").sum()) if len(w) else 0); k[3].metric("Versions", len(db.load_runs(c)))
+        c1, c2 = st.columns(2)
+        c1.plotly_chart(ds.plotly_style(px.line(runs, x="id", y="reassigned_count", markers=True, title="Reallocation statistics (applicants moved per version)", labels={"id": "version", "reassigned_count": "moved"}), 320), width="stretch", key="an_realloc")
+        c2.plotly_chart(ds.plotly_style(px.line(runs, x="id", y="assigned_count", markers=True, title="Allocation-version trend (seated applicants)", labels={"id": "version", "assigned_count": "seated"}), 320), width="stretch", key="an_trend")
+    else:
+        st.info("Seat utilisation, offer distribution, preference satisfaction and reallocation charts appear once an allocation is published.")
 
 
 # ====================================================================== 9 Notifications
 def sec_notifications(c):
     status = ns.integration_status()
+    df_all = db.load_notifications(c, limit=500)
+    ds.kpis([("Email", "configured" if status["email"]["configured"] else "not configured", "g" if status["email"]["configured"] else "a"),
+             ("WhatsApp", "configured" if status["whatsapp"]["configured"] else "not configured", "g" if status["whatsapp"]["configured"] else "a"),
+             ("Sent", int((df_all.status == "sent").sum()), "g"), ("Failed", int((df_all.status == "failed").sum()), "r"), ("Not configured", int((df_all.status == "not_configured").sum()), "a")])
     a, b = st.columns(2)
     (a.success if status["email"]["configured"] else a.warning)("Email: " + status["email"]["text"])
     (b.success if status["whatsapp"]["configured"] else b.warning)("WhatsApp: " + status["whatsapp"]["text"])
@@ -408,16 +470,20 @@ def sec_notifications(c):
     if go:
         for ch, res in ns.send_test(c, to_e, to_p).items():
             (st.success if res.startswith("sent") else st.error)(f"{ch}: {res}")
-    df = db.load_notifications(c, limit=500)
-    f1, f2 = st.columns(2); ch = f1.multiselect("Channel", ["in_app", "email", "whatsapp"], key="nt_ch"); stt = f2.multiselect("Status", ["sent", "failed", "not_configured", "skipped"], key="nt_st")
+    df = df_all
+    ds.section("Delivery log", "Every attempt with the provider's real response")
+    f1, f2, f3 = st.columns(3); ch = f1.multiselect("Channel", ["in_app", "email", "whatsapp"], key="nt_ch"); stt = f2.multiselect("Status", ["sent", "failed", "not_configured", "skipped"], key="nt_st")
+    ev = f3.multiselect("Event", sorted(df.event.dropna().unique().tolist()), key="nt_ev")
     if ch: df = df[df.channel.isin(ch)]
     if stt: df = df[df.status.isin(stt)]
+    if ev: df = df[df.event.isin(ev)]
     st.dataframe(df, hide_index=True, width="stretch", height=380)
     st.caption("Statuses reflect the provider's real response. 'not_configured' means no credentials were present; nothing was sent.")
 
 
 # ====================================================================== 10 Announcements
 def sec_announcements(c):
+    ds.section("Announcements", "Shown on student dashboards (students / all) or the public website (public / all)")
     with st.form("ann_form", clear_on_submit=True):
         t = st.text_input("Title"); b = st.text_area("Message", height=90); aud = st.selectbox("Audience", ["all", "students", "public"])
         ok = st.form_submit_button("Post announcement", type="primary")
@@ -429,7 +495,7 @@ def sec_announcements(c):
         pick = st.selectbox("Toggle", [f"#{r.id} · {r.title}" for r in df.itertuples()], key="ann_pick"); aid = int(pick.split(" · ")[0][1:])
         active = bool(df[df.id == aid].iloc[0].is_active)
         if st.button("Deactivate" if active else "Activate", key="ann_toggle"): db.set_announcement_active(c, aid, not active); st.rerun()
-    st.divider(); st.markdown("**Website text (CMS)**")
+    ds.section("Website content (CMS)", "Institute name, hero, about and contact text used by the public website and the portals")
     content = db.get_site_content(c)
     with st.form("cms_form"):
         new = {k: st.text_area(lbl, value=content.get(k, ""), height=68 if k in ("institute_name", "hero_title", "hero_subtitle", "contact_info") else 120, key=f"cms_{k}") for k, (lbl, _) in db.DEFAULT_SITE_CONTENT.items()}
@@ -447,8 +513,9 @@ def sec_audit(c):
         problem = db.build_problem(c); rep = validate(problem, dict(problem.previous))
         st.success("Independent validation of current version: PASS — " + ", ".join(rep.checks_run)) if rep.ok else st.error(f"{len(rep.violations)} violation(s)")
         if not rep.ok: st.dataframe(pd.DataFrame(rep.as_rows()), hide_index=True, width="stretch")
-    st.markdown("**Allocation versions** (each traceable to its policy snapshot)"); st.dataframe(db.load_runs(c), hide_index=True, width="stretch", height=220)
-    st.markdown("**Audit log**")
+    with ds.card("Allocation versions", "Each version is traceable to its parent and policy snapshot", icon="layers"):
+        st.dataframe(db.load_runs(c), hide_index=True, width="stretch", height=220)
+    ds.section("Audit log", "Append-only; entries cannot be edited or deleted from this interface")
     q = st.text_input("Filter action / details", key="au_q"); df = db.load_audit(c, 1000)
     if q: df = df[df.action.str.contains(q, case=False) | df.details.fillna("").str.contains(q, case=False)]
     st.dataframe(df, hide_index=True, width="stretch", height=420)
@@ -458,56 +525,84 @@ def sec_audit(c):
 # ====================================================================== 12 Settings
 def sec_settings(c):
     s = db.get_settings(c)
-    st.markdown("#### Allocation policy")
-    with st.form("set_policy"):
-        mode = st.selectbox("Objective hierarchy", ["preference_first", "merit_first"], index=0 if s["objective_mode"] == "preference_first" else 1,
-                            help="preference_first: maximise ranked-preference satisfaction, entrance score breaks ties. merit_first: fill seats, then entrance-score merit, then preferences, then earliest application. No other merit weightings are applied.")
-        maxp = st.number_input("Maximum preferences per applicant", 1, 10, int(s["max_preferences"]))
-        lock = st.checkbox("Confirmed admissions are never moved by reallocation", value=s["lock_confirmed_seats"] == "1")
-        mu = st.number_input("Reallocation displacement penalty (1000 = never disturb seated applicants; 1 = allow upgrades into vacancies)", 1, 100000, int(float(s["reallocation_mu"])))
-        days = st.number_input("Offer acceptance window (days, informational)", 1, 60, int(s["offer_accept_days"]))
-        sess = st.text_input("Academic session", s["academic_session"]); tag = st.text_input("Institute tagline", s["institute_tagline"])
-        demo = st.checkbox("Demonstration mode banner", value=s["demo_mode"] == "1")
-        ok = st.form_submit_button("Save settings", type="primary")
-    if ok:
-        for k, v in {"objective_mode": mode, "max_preferences": maxp, "lock_confirmed_seats": int(lock), "reallocation_mu": mu, "offer_accept_days": days,
-                     "academic_session": sess, "institute_tagline": tag, "demo_mode": int(demo)}.items():
-            if str(v) != str(s.get(k)): db.set_setting(c, k, str(v))
-        st.success("Saved. Policy changes apply to the next allocation run."); st.rerun()
-    st.markdown("#### Administrator account")
-    with st.form("set_pw"):
-        old = st.text_input("Current password", type="password"); new = st.text_input("New password", type="password"); new2 = st.text_input("Confirm new password", type="password")
-        ok2 = st.form_submit_button("Change password")
-    if ok2:
-        if not db.check_admin_login(c, "admin", old): st.error("Current password is incorrect.")
-        elif new != new2 or len(new) < 6: st.error("New passwords must match and be at least 6 characters.")
-        else: db.set_admin_password(c, "admin", new); st.success("Password changed.")
-    st.markdown("#### Application form fields")
-    schema = db.load_form_schema(c)
-    st.dataframe(pd.DataFrame([{"Label": f["label"], "Type": f["field_type"], "Required": f["required"], "Options": ", ".join(f["options"])} for f in schema]), hide_index=True, width="stretch")
-    a1, a2 = st.columns(2)
-    with a1, st.form("add_field", clear_on_submit=True):
-        label = st.text_input("Label"); ftype = st.selectbox("Type", ["text", "number", "select"]); req = st.checkbox("Required", True); opts = st.text_input("Options (comma separated, select only)")
-        if st.form_submit_button("Add field") and label.strip():
-            try: db.add_form_field(c, label=label, field_type=ftype, required=req, options=[o.strip() for o in opts.split(",") if o.strip()] or None); st.rerun()
-            except ValueError as e: st.error(str(e))
-    with a2:
-        if schema:
-            rm = st.selectbox("Remove field", [f["field_key"] for f in schema], format_func=lambda k: next(f["label"] for f in schema if f["field_key"] == k), key="rm_field")
-            if st.button("Remove", key="rm_btn"): db.remove_form_field(c, rm); st.rerun()
-    st.markdown("#### Integrations"); st.json(ns.integration_status())
-    with st.expander("Danger zone"):
-        if st.button("Reset database to demonstration seed (200 applicants)", key="reset_db"):
+    t_gen, t_alloc, t_acc, t_form, t_int, t_danger = st.tabs(["General", "Allocation policy", "Account security", "Application form", "Integrations", "Danger zone"])
+    with t_gen, ds.card("General configuration", icon="grid"):
+        with st.form("set_general"):
+            sess = st.text_input("Academic session", s["academic_session"]); tag = st.text_input("Institute tagline", s["institute_tagline"])
+            days = st.number_input("Offer acceptance window (days, informational)", 1, 60, int(s["offer_accept_days"]))
+            demo = st.checkbox("Demonstration mode banner", value=s["demo_mode"] == "1")
+            ok_g = st.form_submit_button("Save general settings", type="primary")
+        if ok_g:
+            for k, v in {"offer_accept_days": days, "academic_session": sess, "institute_tagline": tag, "demo_mode": int(demo)}.items():
+                if str(v) != str(s.get(k)): db.set_setting(c, k, str(v))
+            st.success("Saved."); st.rerun()
+    with t_alloc, ds.card("Allocation policy", "Applies to the next allocation run; existing versions keep their policy snapshot", icon="layers"):
+        with st.form("set_policy"):
+            mode = st.selectbox("Objective hierarchy", ["preference_first", "merit_first"], index=0 if s["objective_mode"] == "preference_first" else 1,
+                                help="preference_first: maximise ranked-preference satisfaction, entrance score breaks ties. merit_first: fill seats, then entrance-score merit, then preferences, then earliest application. No other merit weightings are applied.")
+            maxp = st.number_input("Maximum preferences per applicant", 1, 10, int(s["max_preferences"]))
+            lock = st.checkbox("Confirmed admissions are never moved by reallocation", value=s["lock_confirmed_seats"] == "1")
+            mu = st.number_input("Reallocation displacement penalty (1000 = never disturb seated applicants; 1 = allow upgrades into vacancies)", 1, 100000, int(float(s["reallocation_mu"])))
+            ok = st.form_submit_button("Save allocation policy", type="primary")
+        if ok:
+            for k, v in {"objective_mode": mode, "max_preferences": maxp, "lock_confirmed_seats": int(lock), "reallocation_mu": mu}.items():
+                if str(v) != str(s.get(k)): db.set_setting(c, k, str(v))
+            st.success("Saved. Policy changes apply to the next allocation run."); st.rerun()
+    with t_acc, ds.card("Administrator account", icon="user"):
+        if db.admin_uses_default_password(c): st.warning("The default password is still in use.")
+        with st.form("set_pw"):
+            old = st.text_input("Current password", type="password"); new = st.text_input("New password", type="password"); new2 = st.text_input("Confirm new password", type="password")
+            ok2 = st.form_submit_button("Change password", type="primary")
+        if ok2:
+            if not db.check_admin_login(c, "admin", old): st.error("Current password is incorrect.")
+            elif new != new2 or len(new) < 6: st.error("New passwords must match and be at least 6 characters.")
+            else: db.set_admin_password(c, "admin", new); st.success("Password changed.")
+    with t_form, ds.card("Application form builder", "Extra fields students must answer in Apply Now", icon="file"):
+        schema = db.load_form_schema(c)
+        st.dataframe(pd.DataFrame([{"Label": f["label"], "Type": f["field_type"], "Required": f["required"], "Options": ", ".join(f["options"])} for f in schema]), hide_index=True, width="stretch")
+        a1, a2 = st.columns(2)
+        with a1, st.form("add_field", clear_on_submit=True):
+            label = st.text_input("Label"); ftype = st.selectbox("Type", ["text", "number", "select"]); req = st.checkbox("Required", True); opts = st.text_input("Options (comma separated, select only)")
+            if st.form_submit_button("Add field") and label.strip():
+                try: db.add_form_field(c, label=label, field_type=ftype, required=req, options=[o.strip() for o in opts.split(",") if o.strip()] or None); st.rerun()
+                except ValueError as e: st.error(str(e))
+        with a2:
+            if schema:
+                rm = st.selectbox("Remove field", [f["field_key"] for f in schema], format_func=lambda k: next(f["label"] for f in schema if f["field_key"] == k), key="rm_field")
+                if st.button("Remove", key="rm_btn"): db.remove_form_field(c, rm); st.rerun()
+    with t_int, ds.card("Integration status", "Live view of the email and WhatsApp configuration", icon="mail"):
+        st.json(ns.integration_status())
+    with t_danger, ds.card("Danger zone", icon="alert"):
+        st.error("Resetting replaces every applicant, program, allocation version, appeal, notification and audit entry with the 200-applicant demonstration seed. This cannot be undone.")
+        sure = st.checkbox("I understand that all current records will be lost", key="reset_sure")
+        if st.button("Reset database to demonstration seed (200 applicants)", key="reset_db", disabled=not sure):
             db.reset_db(c); db.seed_demo(c)
             for k in ("al_out", "rw_out", "rc_out", "ap_cf"): st.session_state.pop(k, None)
             st.rerun()
 
 
 def render(c) -> None:
-    st.markdown(CSS, unsafe_allow_html=True)
+    ds.inject()
+    institute = db.get_site_text(c, "institute_name", "Institute")
     with st.sidebar:
+        ds.sidebar_brand(BRAND, institute, LOGO)
+        st.html("<div class='sw-navhead'>Administration</div>")
         section = render_sidebar_nav()
-    st.markdown(f"<h1 style='margin-bottom:0'>{db.get_site_text(c, 'institute_name', 'Institute')}</h1><p style='color:gray;margin-top:4px'>Administrator · {section}</p>", unsafe_allow_html=True)
+        ds.sidebar_profile(st.session_state.get("auth_name") or "Administrator", ["Administrator · full access", institute], auth.full_logout)
+    run = db.get_current_run(c); status = ns.integration_status()
+    pend_ap = c.execute("SELECT COUNT(*) FROM appeals WHERE decision IN ('submitted','evaluated')").fetchone()[0]
+    pend_wd = c.execute("SELECT COUNT(*) FROM withdrawals WHERE status='requested'").fetchone()[0]
+    chips = [(f"Version #{run['id']} · {run['solver_status']}" if run else "No allocation published", "ok" if run and run["solver_status"] in ("OPTIMAL", "FEASIBLE") else "warn"),
+             ("Email " + ("on" if status["email"]["configured"] else "off"), "ok" if status["email"]["configured"] else "warn"),
+             ("WhatsApp " + ("on" if status["whatsapp"]["configured"] else "off"), "ok" if status["whatsapp"]["configured"] else "warn")]
+    if pend_ap: chips.append((f"{pend_ap} appeal(s) pending", "bad"))
+    if pend_wd: chips.append((f"{pend_wd} withdrawal(s) pending", "bad"))
+    ds.hero(f"{institute}", f"Administrator · {_plain(section)} · {ds.today_label()}", chips=chips, unread=pend_ap + pend_wd, avatar="AD", overlap=False)
+    st.html("<div style='height:12px'></div>")
+    if section == SECTIONS[0]:
+        q = st.columns(5)
+        for col, (label, target) in zip(q, [("Run allocation", SECTIONS[4]), ("Applications", SECTIONS[2]), ("Appeals", SECTIONS[6]), ("Withdrawals", SECTIONS[12]), ("Settings", SECTIONS[11])]):
+            col.button(label, key=f"qa_{target}", on_click=goto, args=(target,), width="stretch")
     {SECTIONS[0]: sec_overview, SECTIONS[1]: sec_programs, SECTIONS[2]: sec_applications, SECTIONS[3]: sec_selected, SECTIONS[4]: sec_allocation,
      SECTIONS[5]: sec_reallocation, SECTIONS[6]: sec_appeals, SECTIONS[7]: sec_analytics, SECTIONS[8]: sec_notifications, SECTIONS[9]: sec_announcements,
      SECTIONS[10]: sec_audit, SECTIONS[11]: sec_settings, SECTIONS[12]: sec_withdrawals}[section](c)

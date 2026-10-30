@@ -78,7 +78,7 @@ def sankey_displacement(problem: ProblemData, before: Dict[int, int], after: Dic
     li = {b: i for i, b in enumerate(left)}
     ri = {a: len(left) + i for i, a in enumerate(right)}
     fig = go.Figure(go.Sankey(
-        node=dict(label=node_labels, pad=18, thickness=18),
+        node=dict(label=node_labels, pad=18, thickness=18, color="#6D28D9"),
         link=dict(
             source=[li[b] for (b, a) in flows], target=[ri[a] for (b, a) in flows],
             value=[v for v in flows.values()],
@@ -94,8 +94,8 @@ def occupancy_chart(problem: ProblemData, assignment: Dict[int, int]):
     used = Counter(assignment.values())
     codes = [p.code for p in problem.programs]
     fig = go.Figure()
-    fig.add_bar(name="Seated", x=codes, y=[used.get(p.id, 0) for p in problem.programs])
-    fig.add_bar(name="Free", x=codes, y=[max(0, p.capacity - used.get(p.id, 0)) for p in problem.programs])
+    fig.add_bar(name="Seated", x=codes, y=[used.get(p.id, 0) for p in problem.programs], marker_color="#6D28D9")
+    fig.add_bar(name="Free", x=codes, y=[max(0, p.capacity - used.get(p.id, 0)) for p in problem.programs], marker_color="#DDD6FE")
     fig.update_layout(barmode="stack", height=320, margin=dict(l=10, r=10, t=30, b=10), title="Seat occupancy per program")
     return fig
 
@@ -103,7 +103,7 @@ def occupancy_chart(problem: ProblemData, assignment: Dict[int, int]):
 def rank_chart(res):
     go = _go()
     hist = res.rank_histogram
-    fig = go.Figure(go.Bar(x=[f"Choice #{k}" for k in hist], y=list(hist.values()), text=list(hist.values()), textposition="auto"))
+    fig = go.Figure(go.Bar(x=[f"Choice #{k}" for k in hist], y=list(hist.values()), text=list(hist.values()), textposition="auto", marker_color="#7C3AED"))
     fig.update_layout(height=300, title="Preference satisfaction (which choice did applicants get?)", margin=dict(l=10, r=10, t=40, b=10))
     return fig
 

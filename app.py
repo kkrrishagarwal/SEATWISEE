@@ -39,7 +39,7 @@ from ui.common import BRAND, SYSTEM, conn  # noqa: E402
 PUBLIC = {"home", "about", "academics", "courses", "admissions", "campus", "contact"}
 
 _role = st.session_state.get("auth_role")
-st.set_page_config(page_title=f"{BRAND} · {SYSTEM}", page_icon="🎓", layout="wide", initial_sidebar_state="expanded" if _role else "collapsed")
+st.set_page_config(page_title=f"{BRAND} · {SYSTEM}", page_icon="🎓", layout="wide", initial_sidebar_state="auto" if _role else "collapsed")
 
 site = importlib.import_module("ui.public.site")
 gateway = importlib.import_module("ui.login_gateway")
@@ -76,26 +76,10 @@ def resolve_page() -> str:
     return st.session_state["current_page"]
 
 
-def render_sidebar() -> None:
-    with st.sidebar:
-        st.markdown(f"### {BRAND}")
-        st.write(f"Signed in as **{st.session_state.get('auth_name')}**")
-        st.caption(f"Role: {auth.current_role()}")
-        if st.button("Log out", key="logout_btn", width="stretch"):
-            auth.logout()
-            for k in ("current_page", "show_register", "show_forgot", "student_nav", "admin_nav", "post_login_intent", "apply_intent", "apply_intent_program", "auth_admin_id"):
-                st.session_state.pop(k, None)
-            st.session_state["current_page"] = "home"
-            st.rerun()
-        st.divider()
-
-
 page = resolve_page()
 if page == "admin_dashboard":
-    render_sidebar()
     admin.render(c)
 elif page == "student_portal":
-    render_sidebar()
     student.render_my_portal(c, auth.current_student_id())
 elif page == "login":
     gateway.render()
