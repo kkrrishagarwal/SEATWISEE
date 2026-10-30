@@ -9,12 +9,13 @@ from optimization.counterfactual import evaluate_appeal
 from ui.common import appeal_pdf, conn, program_labels, sankey_displacement, status_badge
 
 
-def render() -> None:
+def render(embedded: bool = False) -> None:
     c = conn()
-    st.header("Appeal studio · what-if sandbox")
+    if not embedded:
+        st.header("Appeal studio · what-if sandbox")
     current = db.get_current_run(c)
     if not current:
-        st.info("Publish an allocation first (Admin → Allocate).")
+        st.info("Publish an allocation first (Command Center → Run Initial Allocation).")
         return
     problem = db.build_problem(c)
     labels = program_labels(problem)
@@ -84,6 +85,7 @@ def render() -> None:
         else:
             st.info("Pick an appellant and a program, then simulate. Nothing is changed in the live allocation; the engine solves a cloned copy.")
 
-    st.divider()
-    st.subheader("Appeal history")
-    st.dataframe(db.load_appeals(c), hide_index=True, width="stretch")
+    if not embedded:
+        st.divider()
+        st.subheader("Appeal history")
+        st.dataframe(db.load_appeals(c), hide_index=True, width="stretch")

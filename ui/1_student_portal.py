@@ -54,8 +54,9 @@ def _doc_preview(rel_path, title):
     st.download_button(f"Download {title}", data, file_name=path.name, key=f"dl_{title}_{path.name}")
 
 
-def render_registration(c) -> None:
-    st.markdown(f"<h1 style='margin-bottom:0'>{BRAND}</h1><p style='color:gray;margin-top:0'>Tell us what you want. Our solver finds the fairest seat for everyone.</p>", unsafe_allow_html=True)
+def render_registration(c, compact: bool = False) -> None:
+    if not compact:
+        st.markdown(f"<h1 style='margin-bottom:0'>{BRAND}</h1><p style='color:gray;margin-top:0'>Tell us what you want. Our solver finds the fairest seat for everyone.</p>", unsafe_allow_html=True)
     programs = db.load_programs(c)
     with st.expander("Browse programs", expanded=False):
         show = programs[["code", "name", "capacity", "min_score", "required_track"]].rename(
@@ -64,7 +65,8 @@ def render_registration(c) -> None:
         st.dataframe(show, hide_index=True, width="stretch")
 
     schema = db.load_form_schema(c)
-    st.subheader("Application form")
+    if not compact:
+        st.subheader("Application form")
     with st.form("register", clear_on_submit=False):
         c1, c2 = st.columns(2)
         with c1:
@@ -130,57 +132,78 @@ def render_registration(c) -> None:
 
 
 def render_my_portal(c, aid: int) -> None:
+    """Logged-in student dashboard: status, allocation, downloads. No registration form here."""
+    import json
+    from ui.common import application_receipt_pdf
+
     a = c.execute("SELECT * FROM applicants WHERE id = ?", (aid,)).fetchone()
     st.markdown(f"<h1 style='margin-bottom:0'>{BRAND}</h1>", unsafe_allow_html=True)
     st.subheader(f"Hello, {a['name']}")
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Applicant ID", a["id"])
-    k2.metric("Score", a["score"])
-    k3.metric("Track", a["track"])
-    k4.metric("Status", a["status"])
 
     seat = db.current_assignment_for(c, aid)
+    docs_ok = bool(a["marksheet_path"]) and bool(a["scorecard_path"])
+    if a["status"] != "active":
+        app_status = "Withdrawn"
+    elif seat is None:
+        app_status = "Submitted · awaiting allocation"
+    elif seat["program_id"] is None:
+        app_status = "Allocation published · unassigned"
+    else:
+        app_status = "Allocation published · seated"
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Applicant ID", a["id"])
+    k2.metric("Application status", app_status)
+    k3.metric("Documents", "Complete" if docs_ok else "Incomplete")
+    k4.metric("Score · Track", f"{a['score']} · {a['track']}")
+
+    st.markdown("#### Allocated program")
     if seat is None:
-        st.info("No allocation has been published yet. Check back after the admin runs the solver.")
+        st.info("The college has not run the allocation yet. Check back later.")
     elif seat["program_id"] is None:
         st.warning("You are currently **unassigned**. You may raise an appeal with the admin office.")
     else:
-        st.success(f"You hold a seat in **{seat['code']} — {seat['program_name']}** (your choice #{seat['rank_obtained']}).")
+        st.success(f"**{seat['code']} — {seat['program_name']}** · your choice #{seat['rank_obtained']}")
         if seat["previous_program_id"] and seat["previous_program_id"] != seat["program_id"]:
             st.caption("This changed in the latest reallocation.")
 
-    left, right = st.columns(2)
+    left, right = st.columns(2, gap="large")
     with left:
-        st.markdown("**Your ranking**")
+        st.markdown("#### Your application")
         prefs = db.load_preferences(c)
         mine = prefs[prefs.applicant_id == aid]
-        for r in mine.itertuples():
-            st.write(f"#{r.rank} · {r.code}")
-        st.markdown("**Your details**")
-        import json
+        st.write("Ranking: " + " › ".join(f"#{r.rank} {r.code}" for r in mine.itertuples()))
         data = json.loads(a["form_data"] or "{}")
         for f in db.load_form_schema(c):
             st.write(f"{f['label']}: {data.get(f['field_key'], '—')}")
         st.caption(f"Applied at {a['applied_at']}")
     with right:
-        _doc_preview(a["marksheet_path"], "12th Board Marksheet")
-        _doc_preview(a["scorecard_path"], "Entrance Exam Scorecard")
+        st.markdown("#### Downloads")
+        receipt = application_receipt_pdf(c, aid)
+        st.download_button("⬇ Application receipt (PDF)", receipt, f"receipt_{aid:06d}.pdf", "application/pdf", key="dl_receipt", width="stretch")
+        for rel, title in ((a["marksheet_path"], "12th Board Marksheet"), (a["scorecard_path"], "Entrance Exam Scorecard")):
+            path = db.resolve_document(rel)
+            if path is not None:
+                st.download_button(f"⬇ {title}", path.read_bytes(), path.name, key=f"dl_{title}", width="stretch")
+            elif rel:
+                st.caption(f"{title}: recorded as `{rel}` (file not available for download)")
+            else:
+                st.caption(f"{title}: not uploaded")
         with st.expander("Replace a document"):
             kind = st.selectbox("Which document", ["marksheet", "scorecard"], format_func=lambda k: db.DOC_KINDS[k])
             up = st.file_uploader("New file", type=["pdf", "png", "jpg", "jpeg"], key="replace_doc")
             if up is not None and st.button("Upload replacement"):
                 try:
                     db.save_document(c, aid, kind, up.name, up.getvalue())
-                    st.success("Replaced.")
                     st.rerun()
                 except ValueError as e:
                     st.error(str(e))
 
 
 def render() -> None:
+    """Kept for backwards compatibility; app.py routes directly to the two functions above."""
     c = conn()
-    role = auth.current_role()
-    if role == auth.ROLE_STUDENT and auth.current_student_id():
+    if auth.current_role() == auth.ROLE_STUDENT and auth.current_student_id():
         render_my_portal(c, auth.current_student_id())
     else:
         render_registration(c)

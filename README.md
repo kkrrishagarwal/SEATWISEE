@@ -1,6 +1,6 @@
 # SEATWISEE  ·  public UI "DO! u want"
 
-**Login:** admin → `admin` / `admin123`. Students sign in with their registered email (e.g. `applicant001@seatwisee.demo`); new students register on the landing page with two mandatory document uploads (12th marksheet, entrance scorecard) saved to `uploads/`.
+**Gateway:** the app opens on a centred login screen with three tabs (Student Login · New Student Registration · College / Admin Login); the sidebar stays hidden until you sign in. Admin → `admin` / `admin123`. Students sign in with their registered email (e.g. `applicant001@seatwisee.demo`); new students register on the landing page with two mandatory document uploads (12th marksheet, entrance scorecard) saved to `uploads/`.
 
 Auditable, constraint-based seat allocation and decision support (hackathon PS06 / FAIRSHIFT).
 
@@ -13,7 +13,8 @@ Auditable, constraint-based seat allocation and decision support (hackathon PS06
 * **Persistence**: SQLite with versioned runs, capacity-change history, appeals and an append-only audit log.
 * **Dynamic forms**: admins add/remove application fields (text / number / select) in the Form Builder; responses are stored as JSON per applicant.
 * **Documents**: uploads are written under secure names (`uploads/000123_12thMarksheet.pdf`), extension-whitelisted, size-capped, path-traversal guarded; the admin can preview/download them.
-* **RBAC**: session-state login gateway; students see only their own record.
+* **RBAC**: session-state login gateway; students see only their own dashboard (status, allocated program, receipt + document downloads).
+* **Admin workspace** has exactly four tabs: Command Center (KPIs, Mode A, occupancy) · Disruptions & Appeals (capacity shocks, withdrawals, Mode B, what-if sandbox with Sankey) · Form Builder & Student Records · Audit & Compliance (validator, run history, audit log).
 
 ## Run
 ```bash

@@ -1,9 +1,9 @@
-"""SEATWISEE — Streamlit entry point with a role-based Login Gateway. Public UI brand: "DO! u want".
+"""SEATWISEE — strict gateway entry point. Public brand: "DO! u want".
 
-Roles
-  admin   : username/password (admin / admin123) -> Admin dashboard + Appeal studio
-  student : email that exists in SQLite          -> Student portal (own data only)
-  (none)  : registration form for new students
+Unauthenticated : sidebar hidden, centred gateway with three tabs
+                  (Student Login · New Student Registration · College / Admin Login).
+Student         : sidebar shows name + Logout; main area = personal dashboard only.
+Admin           : sidebar shows name + Logout; main area = 4-tab admin workspace.
 """
 from __future__ import annotations
 
@@ -16,67 +16,78 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from ui import auth  # noqa: E402
-from ui.common import BRAND, conn  # noqa: E402
+from ui.common import BRAND, SYSTEM, conn  # noqa: E402
 
-st.set_page_config(page_title="DO! u want · SEATWISEE", page_icon="🎯", layout="wide")
+_role = st.session_state.get("auth_role")
+st.set_page_config(
+    page_title=f"{BRAND} · {SYSTEM}", page_icon="🎯", layout="wide",
+    initial_sidebar_state="expanded" if _role else "collapsed",
+)
 
 student = importlib.import_module("ui.1_student_portal")
 admin = importlib.import_module("ui.2_admin_dashboard")
-appeals = importlib.import_module("ui.3_appeal_studio")
 
 c = conn()
 role = auth.current_role()
 
-# ------------------------------------------------------------------ sidebar: identity + login
-with st.sidebar:
-    st.markdown("### SEATWISEE")
-    st.caption("Constraint-based seat allocation · Google OR-Tools CP-SAT · SQLite · Streamlit")
-    if role:
-        st.success(f"Signed in as **{st.session_state.get('auth_name')}** ({role})")
-        if st.button("Log out", key="logout_btn"):
-            auth.logout()
-            st.rerun()
-    else:
-        st.markdown("#### Sign in")
-        mode = st.radio("I am a", ["Student", "Admin / Teacher"], horizontal=True, key="login_mode")
-        if mode == "Admin / Teacher":
+HIDE_SIDEBAR_CSS = """
+<style>
+[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"] { display: none !important; }
+section.main > div { padding-top: 2rem; }
+</style>
+"""
+
+
+def render_gateway() -> None:
+    st.markdown(HIDE_SIDEBAR_CSS, unsafe_allow_html=True)
+    _, mid, _ = st.columns([1, 2.4, 1])
+    with mid:
+        st.markdown(
+            f"<h1 style='text-align:center;margin-bottom:0'>{SYSTEM} Gateway</h1>"
+            f"<p style='text-align:center;color:gray;margin-top:4px'>{BRAND} · constraint-based seat allocation</p>",
+            unsafe_allow_html=True,
+        )
+        tab_student, tab_register, tab_admin = st.tabs(["Student Login", "New Student Registration", "College / Admin Login"])
+
+        with tab_student:
+            with st.form("student_login"):
+                em = st.text_input("Registered email", key="login_email", placeholder="applicant001@seatwisee.demo")
+                go = st.form_submit_button("Sign in", type="primary", width="stretch")
+            if go:
+                if auth.login_student(em, c):
+                    st.rerun()
+                st.error("No applicant with that email. New here? Use the registration tab.")
+
+        with tab_register:
+            student.render_registration(c, compact=True)
+
+        with tab_admin:
             st.caption("Demo credentials: username **admin** · password **admin123**")
             with st.form("admin_login"):
                 u = st.text_input("Username", key="login_user", value="admin")
                 pw = st.text_input("Password", type="password", key="login_pw", placeholder="admin123")
-                go = st.form_submit_button("Sign in", type="primary")
+                go = st.form_submit_button("Sign in as admin", type="primary", width="stretch")
             if go:
                 if auth.login_admin(u, pw, c):
                     st.rerun()
-                else:
-                    st.error("Invalid credentials.")
-        else:
-            with st.form("student_login"):
-                em = st.text_input("Registered email", key="login_email", placeholder="applicant001@seatwisee.demo")
-                go = st.form_submit_button("Sign in", type="primary")
-            if go:
-                if auth.login_student(em, c):
-                    st.rerun()
-                else:
-                    st.error("No applicant with that email. New here? Register on the right.")
-        st.caption("New student? Use the registration form on the main page.")
-    st.divider()
-    st.markdown(
-        "- **Mode A** maximises preference points (merit tie-break)\n"
-        "- **Mode B** protects existing seats with penalty μ\n"
-        "- **Appeals** force one request and report the ripple\n"
-        "- An **independent validator** re-checks every rule"
-    )
+                st.error("Invalid credentials.")
 
-# ------------------------------------------------------------------ routing by role
+
+def render_sidebar() -> None:
+    with st.sidebar:
+        st.markdown(f"### {SYSTEM}")
+        st.write(f"Signed in as **{st.session_state.get('auth_name')}**")
+        st.caption(f"Role: {role}")
+        if st.button("Log out", key="logout_btn", width="stretch"):
+            auth.logout()
+            st.rerun()
+
+
 if role == auth.ROLE_ADMIN:
-    tab_admin, tab_appeal = st.tabs(["🛠 Admin dashboard", "⚖️ Appeal studio"])
-    with tab_admin:
-        admin.render()
-    with tab_appeal:
-        appeals.render()
-elif role == auth.ROLE_STUDENT:
-    student.render()           # own data only; no other applicant is ever queried here
+    render_sidebar()
+    admin.render()
+elif role == auth.ROLE_STUDENT and auth.current_student_id():
+    render_sidebar()
+    student.render_my_portal(c, auth.current_student_id())
 else:
-    st.info("Sign in from the sidebar, or register below as a new student.")
-    student.render()           # registration form
+    render_gateway()
