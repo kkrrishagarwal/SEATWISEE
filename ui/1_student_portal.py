@@ -137,7 +137,11 @@ def render_my_portal(c, aid: int) -> None:
     from ui.common import application_receipt_pdf
 
     a = c.execute("SELECT * FROM applicants WHERE id = ?", (aid,)).fetchone()
-    st.markdown(f"<h1 style='margin-bottom:0'>{BRAND}</h1>", unsafe_allow_html=True)
+    content = db.get_site_content(c)
+    st.markdown(f"<h1 style='margin-bottom:0'>{content['hero_title']}</h1>"
+                f"<p style='color:gray;margin-top:4px'>{content['hero_subtitle']}</p>", unsafe_allow_html=True)
+    if content.get("announcements", "").strip():
+        st.info(f"**Announcements** · {content['announcements']}")
     st.subheader(f"Hello, {a['name']}")
 
     seat = db.current_assignment_for(c, aid)
@@ -189,6 +193,9 @@ def render_my_portal(c, aid: int) -> None:
                 st.caption(f"{title}: recorded as `{rel}` (file not available for download)")
             else:
                 st.caption(f"{title}: not uploaded")
+        with st.expander("About the institute"):
+            st.write(content["about_us"])
+            st.caption(content.get("contact_info", ""))
         with st.expander("Replace a document"):
             kind = st.selectbox("Which document", ["marksheet", "scorecard"], format_func=lambda k: db.DOC_KINDS[k])
             up = st.file_uploader("New file", type=["pdf", "png", "jpg", "jpeg"], key="replace_doc")

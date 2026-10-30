@@ -344,3 +344,31 @@ def test_seeded_users_have_simulated_paths(seeded_conn):
     assert df.marksheet_path.str.startswith("uploads/").all()
     assert not df.marksheet_on_disk.iloc[:200].any()          # simulated, not materialised
     assert "Category" in df.columns and df.Category.notna().all()
+
+
+# ----------------------------------------------------------------------------- CMS site content
+def test_site_content_seed_update_reset(seeded_conn):
+    conn = seeded_conn
+    content = db.get_site_content(conn)
+    assert content["hero_title"] == "Welcome to SEATWISEE"
+    assert {"announcements", "about_us"} <= set(content)
+    db.set_site_content(conn, "hero_title", "Admissions 2026")
+    assert db.get_site_text(conn, "hero_title") == "Admissions 2026"
+    db.init_db(conn)                                   # re-running the migration must NOT overwrite edits
+    assert db.get_site_text(conn, "hero_title") == "Admissions 2026"
+    db.reset_site_content(conn, "hero_title")
+    assert db.get_site_text(conn, "hero_title") == "Welcome to SEATWISEE"
+    with pytest.raises(ValueError):
+        db.set_site_content(conn, "bad key!", "x")
+    assert (db.load_audit(conn).action == "site_content_updated").any()
+
+
+def test_unified_login_resolution(seeded_conn, monkeypatch):
+    from ui import auth
+    state = {}
+    monkeypatch.setattr(auth.st, "session_state", state, raising=False)
+    assert auth.login_unified("admin", "admin123", seeded_conn) == "admin"
+    assert auth.login_unified("admin", "nope", seeded_conn) is None
+    assert auth.login_unified("applicant001@seatwisee.demo", "", seeded_conn) == "student"
+    assert auth.login_unified("ghost@nowhere.io", "", seeded_conn) is None
+    assert auth.login_unified("", "", seeded_conn) is None

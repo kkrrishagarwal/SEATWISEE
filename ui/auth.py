@@ -68,3 +68,18 @@ def require(role: str) -> bool:
         st.error("You are not authorised to view this page.")
         return False
     return True
+
+
+def login_unified(identifier: str, password: str, conn) -> Optional[str]:
+    """Single entry point: resolve role from one identifier.
+
+    'admin' + the admin password          -> ROLE_ADMIN
+    an email present in applicants        -> ROLE_STUDENT (password not required for the demo)
+    anything else                          -> None
+    """
+    ident = (identifier or "").strip()
+    if not ident:
+        return None
+    if "@" not in ident:
+        return ROLE_ADMIN if login_admin(ident, password, conn) else None
+    return ROLE_STUDENT if login_student(ident, conn) else None

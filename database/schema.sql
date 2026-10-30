@@ -104,3 +104,11 @@ CREATE TABLE IF NOT EXISTS audit_log (
 
 CREATE INDEX IF NOT EXISTS idx_assignments_run ON assignments(run_id);
 CREATE INDEX IF NOT EXISTS idx_prefs_applicant ON preferences(applicant_id);
+
+-- Admin-editable site text (CMS). Rendered dynamically on the landing page and student portal.
+CREATE TABLE IF NOT EXISTS site_content (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    section_key  TEXT NOT NULL UNIQUE,
+    content_text TEXT NOT NULL,
+    updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
+);

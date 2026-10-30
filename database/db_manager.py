@@ -34,6 +34,15 @@ DEFAULT_FORM_FIELDS = [
 ]
 CITIES = ["Delhi", "Mumbai", "Bengaluru", "Hyderabad", "Pune", "Kolkata", "Jaipur", "Lucknow", "Bhopal", "Chennai"]
 
+# CMS defaults: section_key -> (label shown to the admin, default text)
+DEFAULT_SITE_CONTENT = {
+    "hero_title": ("Hero title", "Welcome to SEATWISEE"),
+    "hero_subtitle": ("Hero subtitle", "DO! u want — fair, transparent seat allocation for every applicant."),
+    "announcements": ("Announcements", "Admissions 2026 are open. Rank up to five programs and upload your 12th marksheet and entrance scorecard. Allocation results will be published by the admissions office."),
+    "about_us": ("About us", "Seats are allocated by a constraint-programming engine (Google OR-Tools CP-SAT) that maximises preference satisfaction while respecting eligibility and capacity. Every decision is explainable and independently validated."),
+    "contact_info": ("Contact info", "Admissions Office · admissions@seatwisee.demo · +91 120 456 7890 · Mon–Sat 9:00–17:30 IST"),
+}
+
 TRACKS = ["Engineering", "Science", "Commerce", "Arts"]
 
 FIRST_NAMES = [
@@ -72,6 +81,7 @@ def get_conn(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_PATH.read_text())
     _migrate(conn)
+    seed_site_content(conn)      # idempotent: fills only missing keys, never overwrites admin edits
     conn.commit()
 
 
@@ -91,7 +101,7 @@ def reset_db(conn: sqlite3.Connection) -> None:
     init_db(conn)
     tables = [
         "audit_log", "appeals", "capacity_changes", "assignments",
-        "allocation_runs", "preferences", "applicants", "programs", "form_schema",
+        "allocation_runs", "preferences", "applicants", "programs", "form_schema", "site_content",
     ]
     for t in tables:
         conn.execute(f"DELETE FROM {t}")
@@ -178,6 +188,45 @@ def seed_demo(conn: sqlite3.Connection, n_applicants: int = 200, seed: int = 42)
             )
     conn.commit()
     log_audit(conn, "system", "seed", {"applicants": n_applicants, "programs": len(PROGRAM_CATALOG), "seed": seed})
+
+
+# --------------------------------------------------------------------------- site content (CMS)
+def seed_site_content(conn: sqlite3.Connection) -> None:
+    for key, (_label, text) in DEFAULT_SITE_CONTENT.items():
+        conn.execute("INSERT OR IGNORE INTO site_content (section_key, content_text) VALUES (?, ?)", (key, text))
+    conn.commit()
+
+
+def get_site_content(conn: sqlite3.Connection) -> Dict[str, str]:
+    rows = conn.execute("SELECT section_key, content_text FROM site_content").fetchall()
+    content = {k: v[1] for k, v in DEFAULT_SITE_CONTENT.items()}
+    content.update({r["section_key"]: r["content_text"] for r in rows})
+    return content
+
+
+def get_site_text(conn: sqlite3.Connection, key: str, default: str = "") -> str:
+    row = conn.execute("SELECT content_text FROM site_content WHERE section_key = ?", (key,)).fetchone()
+    if row:
+        return row["content_text"]
+    return DEFAULT_SITE_CONTENT.get(key, ("", default))[1] or default
+
+
+def set_site_content(conn: sqlite3.Connection, key: str, text: str, actor: str = "admin") -> None:
+    if not key or not key.replace("_", "").isalnum():
+        raise ValueError("invalid section key")
+    conn.execute(
+        """INSERT INTO site_content (section_key, content_text, updated_at) VALUES (?, ?, datetime('now'))
+           ON CONFLICT(section_key) DO UPDATE SET content_text = excluded.content_text, updated_at = datetime('now')""",
+        (key, text),
+    )
+    conn.commit()
+    log_audit(conn, actor, "site_content_updated", {"key": key, "chars": len(text)})
+
+
+def reset_site_content(conn: sqlite3.Connection, key: str) -> None:
+    if key not in DEFAULT_SITE_CONTENT:
+        raise ValueError("unknown section key")
+    set_site_content(conn, key, DEFAULT_SITE_CONTENT[key][1])
 
 
 # --------------------------------------------------------------------------- dynamic form schema

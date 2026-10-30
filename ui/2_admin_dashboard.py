@@ -1,9 +1,10 @@
-"""Unified admin workspace — exactly four tabs.
+"""Unified admin workspace — five tabs.
 
 1. Command Center            : KPIs, Run Initial Allocation (Mode A), seat occupancy
 2. Disruptions & Appeals     : capacity shocks, withdrawals, Mode B reassignment, appeal sandbox
-3. Form Builder & Records    : dynamic form fields, student table, document viewer
-4. Audit & Compliance        : independent validator, run history, capacity history, appeals, audit log
+3. Student Records & Forms   : dynamic form fields, student table, document viewer
+4. Website Editor (CMS)      : edit landing-page / student-portal text stored in site_content
+5. Audit Trail               : independent validator, run history, capacity history, appeals, audit log
 """
 from __future__ import annotations
 
@@ -250,7 +251,42 @@ def _form_and_records(c):
     _student_records(c)
 
 
-# ====================================================================== TAB 4
+# ====================================================================== TAB 4 — Website Editor (CMS)
+def _website_editor(c):
+    st.markdown("**Website Editor** · change the text shown on the login landing page and the student portal. Saves go live instantly.")
+    content = db.get_site_content(c)
+    with st.form("cms_form"):
+        new = {}
+        for key, (label, _default) in db.DEFAULT_SITE_CONTENT.items():
+            height = 68 if key in ("hero_title", "hero_subtitle", "contact_info") else 140
+            new[key] = st.text_area(label, value=content.get(key, ""), height=height, key=f"cms_{key}")
+        saved = st.form_submit_button("Save changes", type="primary")
+    if saved:
+        changed = [k for k, v in new.items() if v != content.get(k, "")]
+        for k in changed:
+            db.set_site_content(c, k, new[k].strip())
+        if changed:
+            st.success(f"Saved {len(changed)} section(s): {', '.join(changed)}. The site updates immediately.")
+        else:
+            st.info("Nothing changed.")
+        st.rerun()
+    r1, r2 = st.columns([1, 3])
+    with r1:
+        key = st.selectbox("Reset a section to default", list(db.DEFAULT_SITE_CONTENT), format_func=lambda k: db.DEFAULT_SITE_CONTENT[k][0], key="cms_reset_key")
+        if st.button("Reset section", key="cms_reset_btn"):
+            db.reset_site_content(c, key)
+            st.rerun()
+    with r2:
+        st.markdown("**Live preview (landing page header)**")
+        st.markdown(f"<div style='border:1px solid #e2e8f0;border-radius:12px;padding:16px;text-align:center'>"
+                    f"<h2 style='margin:0'>{content['hero_title']}</h2><p style='color:gray;margin:4px 0 10px'>{content['hero_subtitle']}</p>"
+                    f"<div style='background:#FFF7E0;border-left:4px solid #F5B301;padding:8px 12px;text-align:left;border-radius:8px'>{content['announcements']}</div></div>",
+                    unsafe_allow_html=True)
+    hist = pd.read_sql_query("SELECT section_key, updated_at, length(content_text) AS chars FROM site_content ORDER BY updated_at DESC", c)
+    st.dataframe(hist, hide_index=True, width="stretch")
+
+
+# ====================================================================== TAB 5
 def _audit(c, current, problem, cur_assign):
     st.markdown("**Independent validator** · pure Python, no OR-Tools, re-checks every declared rule against the current run")
     if not cur_assign:
@@ -296,7 +332,7 @@ def render() -> None:
     problem = db.build_problem(c)
     cur_assign = dict(problem.previous)
     st.title("Admin workspace")
-    t1, t2, t3, t4 = st.tabs(["🎛 Command Center", "⚡ Disruptions & Appeals", "📋 Form Builder & Student Records", "🔍 Audit & Compliance"])
+    t1, t2, t3, t4, t5 = st.tabs(["🎛 Command Center", "⚡ Disruptions & Appeals", "📋 Student Records & Forms", "✏️ Website Editor", "🔍 Audit Trail"])
     with t1:
         _command_center(c, current, problem, cur_assign)
     with t2:
@@ -304,4 +340,6 @@ def render() -> None:
     with t3:
         _form_and_records(c)
     with t4:
+        _website_editor(c)
+    with t5:
         _audit(c, current, problem, cur_assign)
