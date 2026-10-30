@@ -5,20 +5,76 @@ import json
 import sqlite3
 from collections import Counter
 
+import importlib
+
 import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
 
 from database import db_manager as db
-from optimization import reallocation_engine as re_
-from optimization.validator import validate
-from reports.application_pdf import dataframe_pdf
-from services import application_service as aps, notification_service as ns
-from ui.common import appeal_pdf, assignment_df, occupancy_chart, rank_chart, sankey_displacement, status_badge
+from services import notification_service as ns
+
+
+class _Lazy:
+    """Import a module on first attribute access (keeps OR-Tools / Plotly / ReportLab out of startup memory)."""
+    def __init__(self, name): self._n, self._m = name, None
+    def __getattr__(self, item):
+        if self._m is None:
+            self._m = importlib.import_module(self._n)
+        return getattr(self._m, item)
+
+
+re_ = _Lazy("optimization.reallocation_engine")
+aps = _Lazy("services.application_service")
+_val = _Lazy("optimization.validator")
+_pdf = _Lazy("reports.application_pdf")
+_cm = _Lazy("ui.common")
+px = _Lazy("plotly.express")
+go = _Lazy("plotly.graph_objects")
+
+
+def validate(*a, **k): return _val.validate(*a, **k)
+def dataframe_pdf(*a, **k): return _pdf.dataframe_pdf(*a, **k)
+def appeal_pdf(*a, **k): return _cm.appeal_pdf(*a, **k)
+def assignment_df(*a, **k): return _cm.assignment_df(*a, **k)
+def occupancy_chart(*a, **k): return _cm.occupancy_chart(*a, **k)
+def rank_chart(*a, **k): return _cm.rank_chart(*a, **k)
+def sankey_displacement(*a, **k): return _cm.sankey_displacement(*a, **k)
+def status_badge(*a, **k): return _cm.status_badge(*a, **k)
 
 SECTIONS = ["📊 Overview", "🎓 Program Management", "📥 All Applications", "✅ Selected Candidates", "⚙️ Allocation Management",
-            "🔄 Reallocation Management", "⚖️ Appeals", "📈 Analytics", "🔔 Notifications", "📣 Announcements", "🧾 Audit History", "🛠 Settings"]
+            "🔄 Reallocation Management", "⚖️ Appeals", "📈 Analytics", "🔔 Notifications", "📣 Announcements", "🧾 Audit History", "🛠 Settings",
+            "🚪 Withdrawals"]
+# Sidebar groups (4 expanders) — every entry must be a member of SECTIONS.
+NAV_GROUPS = [
+    ("🧭 Command Center", [SECTIONS[0], SECTIONS[4], SECTIONS[5], SECTIONS[7]]),
+    ("🗂 Student & Program Data", [SECTIONS[1], SECTIONS[2], SECTIONS[3]]),
+    ("⚖️ Appeals & Exceptions", [SECTIONS[6], SECTIONS[12]]),
+    ("🛠 Settings & Logs", [SECTIONS[11], SECTIONS[8], SECTIONS[9], SECTIONS[10]]),
+]
+_GROUP_KEYS = [f"admin_nav_g{i}" for i in range(len(NAV_GROUPS))]
+
+
+def _nav_changed(group_key: str) -> None:
+    """A radio inside one sidebar group changed: make it the active section and clear the other groups."""
+    val = st.session_state.get(group_key)
+    if val is None:
+        return
+    st.session_state["admin_nav"] = val
+    for gk in _GROUP_KEYS:
+        if gk != group_key:
+            st.session_state[gk] = None
+
+
+def render_sidebar_nav() -> str:
+    current = st.session_state.get("admin_nav")
+    if current not in SECTIONS:
+        current = SECTIONS[0]; st.session_state["admin_nav"] = current
+    st.markdown("#### Admin menu")
+    for (title, options), gk in zip(NAV_GROUPS, _GROUP_KEYS):
+        st.session_state[gk] = current if current in options else None
+        with st.expander(title, expanded=current in options):
+            st.radio(title, options, index=None, key=gk, on_change=_nav_changed, args=(gk,), label_visibility="collapsed")
+    return current
 
 CSS = """<style>
 .ad-card { border-radius:16px; padding:16px 18px; background:#fff; border:1px solid rgba(15,23,42,.08); box-shadow:0 8px 24px rgba(11,31,58,.06); }
@@ -238,7 +294,7 @@ def sec_allocation(c):
 
 
 # ====================================================================== 6 Reallocation Management
-def sec_reallocation(c):
+def sec_withdrawals(c):
     st.markdown("#### Withdrawal requests")
     pending = db.load_withdrawals(c, "requested")
     if pending.empty: st.info("No pending withdrawal requests.")
@@ -254,7 +310,12 @@ def sec_reallocation(c):
             re_.process_withdrawal(c, wid, approve=False, actor="admin"); st.rerun()
     if "rw_out" in st.session_state:
         st.markdown("**Result of the last authorised withdrawal**"); _publish_feedback(st.session_state["rw_out"])
-    st.divider(); st.markdown("#### Capacity changes")
+    st.divider(); st.markdown("#### Withdrawal history"); st.dataframe(db.load_withdrawals(c), hide_index=True, width="stretch")
+    st.caption("Authorising a withdrawal releases the seat and immediately re-runs the minimal-disruption reallocation (see Reallocation Management for capacity changes and vacancies).")
+
+
+def sec_reallocation(c):
+    st.markdown("#### Capacity changes")
     programs = db.load_programs(c)
     c1, c2, c3 = st.columns(3)
     sel = c1.selectbox("Program", programs.code.tolist(), key="rc_prog"); row = programs[programs.code == sel].iloc[0]
@@ -272,7 +333,7 @@ def sec_reallocation(c):
         with st.spinner("Re-optimising…"):
             st.session_state["rc_out"] = re_.run_reallocation(c, "manual run from Reallocation Management")
         st.rerun()
-    st.markdown("**History**"); st.dataframe(db.load_withdrawals(c), hide_index=True, width="stretch"); st.dataframe(db.load_capacity_changes(c), hide_index=True, width="stretch")
+    st.markdown("**Capacity change history**"); st.dataframe(db.load_capacity_changes(c), hide_index=True, width="stretch")
 
 
 # ====================================================================== 7 Appeals
@@ -444,10 +505,9 @@ def sec_settings(c):
 
 def render(c) -> None:
     st.markdown(CSS, unsafe_allow_html=True)
-    if st.session_state.get("admin_nav") not in SECTIONS: st.session_state["admin_nav"] = SECTIONS[0]
     with st.sidebar:
-        st.markdown("#### Admin menu"); section = st.radio("Admin menu", SECTIONS, key="admin_nav", label_visibility="collapsed")
+        section = render_sidebar_nav()
     st.markdown(f"<h1 style='margin-bottom:0'>{db.get_site_text(c, 'institute_name', 'Institute')}</h1><p style='color:gray;margin-top:4px'>Administrator · {section}</p>", unsafe_allow_html=True)
     {SECTIONS[0]: sec_overview, SECTIONS[1]: sec_programs, SECTIONS[2]: sec_applications, SECTIONS[3]: sec_selected, SECTIONS[4]: sec_allocation,
      SECTIONS[5]: sec_reallocation, SECTIONS[6]: sec_appeals, SECTIONS[7]: sec_analytics, SECTIONS[8]: sec_notifications, SECTIONS[9]: sec_announcements,
-     SECTIONS[10]: sec_audit, SECTIONS[11]: sec_settings}[section](c)
+     SECTIONS[10]: sec_audit, SECTIONS[11]: sec_settings, SECTIONS[12]: sec_withdrawals}[section](c)

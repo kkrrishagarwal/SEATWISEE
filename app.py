@@ -61,6 +61,9 @@ def resolve_page() -> str:
             st.session_state["current_page"] = qp
             if qp == "login" and st.query_params.get("intent") == "apply":
                 st.session_state["post_login_intent"] = "apply"
+                st.session_state["apply_intent"] = True
+                if st.query_params.get("program"):
+                    st.session_state["apply_intent_program"] = st.query_params.get("program").upper()
                 st.session_state["show_register"] = True
             keep_program = st.query_params.get("program")
             st.query_params.clear()
@@ -80,7 +83,7 @@ def render_sidebar() -> None:
         st.caption(f"Role: {auth.current_role()}")
         if st.button("Log out", key="logout_btn", width="stretch"):
             auth.logout()
-            for k in ("current_page", "show_register", "show_forgot", "student_nav", "admin_nav", "post_login_intent", "auth_admin_id"):
+            for k in ("current_page", "show_register", "show_forgot", "student_nav", "admin_nav", "post_login_intent", "apply_intent", "apply_intent_program", "auth_admin_id"):
                 st.session_state.pop(k, None)
             st.session_state["current_page"] = "home"
             st.rerun()

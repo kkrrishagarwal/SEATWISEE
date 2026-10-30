@@ -278,7 +278,7 @@ def page_courses(c, content, settings):
   <div class="feature"><h3>Seats</h3><p><b>{int(r.capacity)}</b> seats this session{f' · {allocated} provisionally allotted so far' if used else ''}.</p></div>
   <div class="feature"><h3>Program ID</h3><p>{esc(code)} · status: {'open for applications' if int(r.is_open or 0) else 'closed'}</p></div>
   <div class="feature"><h3>How seats are assigned</h3><p>By the SEATWISEE engine using your ranked preferences, eligibility and capacity; results are independently validated.</p></div></div>
-  <p style="margin-top:22px"><a class="btn gold" href="?page=login&intent=apply" target="_self">Apply for this program →</a> <a class="btn navy" href="?page=courses" target="_self">All courses</a></p></div>
+  <p style="margin-top:22px"><a class="btn gold" href="?page=login&intent=apply&program={esc(code)}" target="_self">Apply for this program →</a> <a class="btn navy" href="?page=courses" target="_self">All courses</a></p></div>
   <img src="{img(f'program_{code.lower()}.jpg')}" alt=""></div></section>""")
         return
     page_head("Courses", f"{len(programs)} programs across {programs.department.replace('', pd.NA).dropna().nunique()} schools. Seats and eligibility are live values.", "lab.jpg", "Courses")

@@ -7,12 +7,31 @@ import json
 import pandas as pd
 import streamlit as st
 
+import importlib
+
 from database import db_manager as db
-from optimization import reallocation_engine as re_
-from reports.evaluation_pdf import evaluation_pdf
-from services import application_service as aps, notification_service as ns
+from services import notification_service as ns
 from ui import auth
-from ui.common import BRAND, allotment_letter_pdf, application_receipt_pdf, conn
+from ui.common import BRAND, conn
+
+
+class _Lazy:
+    def __init__(self, name): self._n, self._m = name, None
+    def __getattr__(self, item):
+        if self._m is None:
+            self._m = importlib.import_module(self._n)
+        return getattr(self._m, item)
+
+
+re_ = _Lazy("optimization.reallocation_engine")
+aps = _Lazy("services.application_service")
+_ev = _Lazy("reports.evaluation_pdf")
+_cm = _Lazy("ui.common")
+
+
+def evaluation_pdf(*a, **k): return _ev.evaluation_pdf(*a, **k)
+def allotment_letter_pdf(*a, **k): return _cm.allotment_letter_pdf(*a, **k)
+def application_receipt_pdf(*a, **k): return _cm.application_receipt_pdf(*a, **k)
 
 NAV_DASHBOARD, NAV_APPLY, NAV_MYAPP, NAV_RESULT, NAV_WITHDRAW, NAV_APPEAL, NAV_NOTIF, NAV_DOCS = (
     "🏠 Dashboard", "📝 Apply Now", "📄 My Application", "🎓 Admission Result", "↩️ Withdrawal", "⚖️ Appeal", "🔔 Notifications", "⬇️ Downloads")
@@ -50,6 +69,18 @@ def _render_dynamic_fields(schema):
             v = st.text_input(label, key=key, placeholder="e.g. 0" if f["field_type"] == "number" else "")
             out[f["field_key"]] = v.strip() if v and v.strip() else None
     return out
+
+
+def _eligibility_feedback(c, a):
+    """Explain exactly why an application is ineligible (or which ranked programs it qualifies for)."""
+    if a["eligibility_status"] != "ineligible":
+        return
+    details = aps.ineligibility_details(c, a["id"])
+    if not details:
+        st.error("**Not eligible.** Your application does not qualify for any program you ranked. Contact the admissions office."); return
+    lines = [f"**#{rk} {code}** — " + ("; ".join(reasons) if reasons else "eligible") for rk, code, reasons in details]
+    st.error(f"**Not eligible for any ranked program** (entrance score {a['score']}, track {a['track']}). Program-by-program reasons:\n\n- " + "\n- ".join(lines)
+             + "\n\nYou may raise an **Appeal** or contact the admissions office if you believe this is incorrect.")
 
 
 def _doc_preview(rel_path, title):
@@ -100,6 +131,7 @@ def render_dashboard(c, a):
     for r in db.load_announcements(c, audience="students").head(3).itertuples():
         st.info(f"**{r.title}** · {r.body}")
     st.markdown(f"<div class='sw-card {cls}'><h3>Status: {label}</h3><p>{detail}</p></div>", unsafe_allow_html=True)
+    _eligibility_feedback(c, a)
     b1, b2, b3, _ = st.columns([1, 1, 1, 1])
     b1.button("Go to Apply Now →" if not applied else "My application", type="primary" if not applied else "secondary", key="dash_go_apply",
               on_click=goto, args=(NAV_APPLY if not applied else NAV_MYAPP,), width="stretch")
@@ -140,7 +172,16 @@ def render_apply(c, a):
     with st.expander("Programs and eligibility"):
         show = programs[["code", "name", "capacity", "min_score", "required_track", "duration"]].rename(columns={"code": "Code", "name": "Program", "capacity": "Seats", "min_score": "Min score", "required_track": "Track required", "duration": "Duration"})
         show["Track required"] = show["Track required"].fillna("Any"); st.dataframe(show, hide_index=True, width="stretch")
-    with st.form("apply_form"):
+    options = [f"{r.code} — {r.name}" for r in programs.itertuples()]
+    wanted = st.session_state.pop("apply_intent_program", None)
+    if wanted and "apply_prefs" not in st.session_state:
+        pre = [o for o in options if o.split(" — ")[0] == wanted]
+        if pre:
+            st.session_state["apply_prefs"] = pre
+            st.info(f"**{wanted}** has been placed as your first preference. Add more programs below in order of preference.")
+    # Every input lives inside ONE form: file uploads no longer trigger reruns that clear the other fields,
+    # and each widget has a permanent key so values persist in session state until submission.
+    with st.form("application_form", clear_on_submit=False):
         c1, c2 = st.columns(2)
         score = c1.slider("Entrance score *", 0, 100, 70, key="apply_score")
         track = c2.selectbox("Your track *", db.TRACKS, key="apply_track")
@@ -151,7 +192,6 @@ def render_apply(c, a):
             for idx, f in enumerate(schema):
                 with cols[idx % 2]:
                     dyn.update(_render_dynamic_fields([f]))
-        options = [f"{r.code} — {r.name}" for r in programs.itertuples()]
         ranked = st.multiselect(f"Rank up to {max_prefs} programs in order of preference *", options, max_selections=max_prefs, key="apply_prefs")
         st.markdown("**Mandatory documents** (PDF, PNG or JPG, max 8 MB each)")
         u1, u2 = st.columns(2)
@@ -193,6 +233,7 @@ def render_my_application(c, a):
     prefs = db.load_preferences(c); mine = prefs[prefs.applicant_id == a["id"]]
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Application ID", db.app_id(a["id"])); k2.metric("Submitted", str(a["applied_at"])[:16]); k3.metric("Eligibility", a["eligibility_status"].title()); k4.metric("Status", a["offer_status"].title() if a["offer_status"] != "none" else "In process")
+    _eligibility_feedback(c, a)
     l, r = st.columns(2, gap="large")
     with l:
         st.markdown("#### Submitted details")
@@ -329,8 +370,9 @@ def render_my_portal(c, aid: int) -> None:
     content = db.get_site_content(c)
     st.markdown(PORTAL_CSS, unsafe_allow_html=True)
     intent = st.session_state.pop("post_login_intent", None)
-    if intent == "apply" and not db.has_applied(a):
-        st.session_state["student_nav"] = NAV_APPLY
+    apply_intent = bool(st.session_state.pop("apply_intent", False)) or intent == "apply"
+    if apply_intent and not db.has_applied(a):
+        st.session_state["student_nav"] = NAV_APPLY   # deep link: land on Apply Now once, then normal navigation resumes
     elif st.session_state.get("student_nav") not in NAV_OPTIONS:
         st.session_state["student_nav"] = NAV_DASHBOARD
     with st.sidebar:

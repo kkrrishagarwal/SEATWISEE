@@ -24,6 +24,15 @@ def verify_eligibility(conn, applicant_id: int) -> str:
     return status
 
 
+def ineligibility_details(conn, applicant_id: int) -> list:
+    """For each ranked program: (rank, code, [reasons]) — empty reasons means eligible for that program."""
+    problem = db.build_problem(conn, previous={})
+    if applicant_id not in problem.applicant_ids:
+        return []
+    ranked = sorted(((rk, pid) for (a, pid), rk in problem.pref_rank.items() if a == applicant_id))
+    return [(rk, problem.program(pid).code, problem.ineligibility_reasons(applicant_id, pid)) for rk, pid in ranked]
+
+
 def verify_all_eligibility(conn) -> dict:
     problem = db.build_problem(conn, previous={})
     counts = {"eligible": 0, "ineligible": 0}
