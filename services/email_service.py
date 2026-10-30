@@ -64,16 +64,16 @@ def send_email(to: str, subject: str, html_body: str, text_body: Optional[str] =
     msg.add_alternative(html_body, subtype="html")
     try:
         if c["tls"] == "ssl":
-            with smtplib.SMTP_SSL(c["host"], c["port"], timeout=timeout, context=ssl.create_default_context()) as s:
-                s.login(c["user"], c["password"])
+            with smtplib.SMTP_SSL(c["host"], c["port"], timeout=timeout, context=ssl.create_default_context(), local_hostname="seatwisee.local") as s:
+                _login(s, c["user"], c["password"])
                 refused = s.send_message(msg)
         else:
-            with smtplib.SMTP(c["host"], c["port"], timeout=timeout) as s:
+            with smtplib.SMTP(c["host"], c["port"], timeout=timeout, local_hostname="seatwisee.local") as s:
                 s.ehlo()
                 if c["tls"] == "starttls":
                     s.starttls(context=ssl.create_default_context())
                     s.ehlo()
-                s.login(c["user"], c["password"])
+                _login(s, c["user"], c["password"])
                 refused = s.send_message(msg)
         if refused:
             return "failed", f"recipients refused: {refused}"
@@ -82,6 +82,15 @@ def send_email(to: str, subject: str, html_body: str, text_body: Optional[str] =
         return "failed", f"authentication failed: {e.smtp_code} {e.smtp_error!r}"
     except (smtplib.SMTPException, OSError) as e:
         return "failed", f"{type(e).__name__}: {e}"
+
+
+def _login(s: smtplib.SMTP, user: str, password: str) -> None:
+    """AUTH PLAIN first (one round-trip, clean 535 on bad credentials); fall back to smtplib's negotiation."""
+    if "auth" in s.esmtp_features and "PLAIN" in s.esmtp_features["auth"].upper():
+        s.user, s.password = user, password
+        s.auth("PLAIN", s.auth_plain)          # raises SMTPAuthenticationError with the server's 535 text
+        return
+    s.login(user, password)
 
 
 def _strip_html(html: str) -> str:
