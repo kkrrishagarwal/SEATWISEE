@@ -63,7 +63,7 @@ def test_mode_a_maximises_preference():
     res = solve_initial(p)
     # P1 (rank 1 for A1..A3) has 2 seats -> 2*100 + one Eng gets P2 at rank 2 (50) + A4 rank 1 (100) = 350
     assert res.preference_score == 350
-    assert res.objective == 350
+    assert 350 <= res.objective < 351          # tie-break term is strictly below one preference point
 
 
 def test_200x10_solves_fast(demo_problem):
@@ -173,7 +173,7 @@ def test_status_names_distinguish_optimal_feasible_unknown(demo_problem):
     quick = AllocationModel(demo_problem, time_limit_s=1e-4).solve()
     assert quick.status in ("OPTIMAL", "FEASIBLE", "UNKNOWN")
     if quick.status == "OPTIMAL":
-        assert quick.objective == quick.best_bound
+        assert abs(quick.objective - quick.best_bound) < 1e-6
 
 
 # ----------------------------------------------------------------------------- validator
@@ -263,3 +263,84 @@ def test_db_round_trip_and_audit(seeded_conn):
     p2 = db.build_problem(conn)                   # previous defaults to current run
     assert p2.previous == res.assignment
     assert p2.capacity[1] == 25
+
+
+# ----------------------------------------------------------------------------- deterministic tie-breaking
+def test_tie_break_prefers_higher_merit_then_earlier_application():
+    """Two applicants, one seat, identical preferences: higher score wins; equal score -> earlier applied_at wins."""
+    apps = [Applicant(1, "Low", 60, "Eng", applied_at="2026-10-01 10:00:00"),
+            Applicant(2, "High", 90, "Eng", applied_at="2026-10-02 10:00:00")]
+    progs = [Program(1, "P1", "Only", 1)]
+    p = ProblemData(apps, progs, {(1, 1): 1, (2, 1): 1})
+    res = solve_initial(p)
+    assert res.status == "OPTIMAL" and res.assignment == {2: 1}
+
+    apps = [Applicant(1, "Later", 75, "Eng", applied_at="2026-10-05 10:00:00"),
+            Applicant(2, "Earlier", 75, "Eng", applied_at="2026-10-01 10:00:00")]
+    p = ProblemData(apps, progs, {(1, 1): 1, (2, 1): 1})
+    res = solve_initial(p)
+    assert res.assignment == {2: 1}
+
+
+def test_tie_break_never_overrides_preference(demo_problem):
+    """Scaling guarantee: the solution must equal the pure preference optimum."""
+    res = solve_initial(demo_problem)
+    pure = AllocationModel(demo_problem, tie_break=False).solve()
+    assert pure.status == res.status == "OPTIMAL"
+    assert res.preference_score == pure.preference_score
+    assert 0 <= res.objective - res.preference_score < 1
+
+
+def test_solve_is_deterministic(demo_problem):
+    a = solve_initial(demo_problem).assignment
+    b = solve_initial(demo_problem).assignment
+    assert a == b
+
+
+# ----------------------------------------------------------------------------- dynamic forms & documents
+def test_form_schema_crud_and_validation(seeded_conn):
+    conn = seeded_conn
+    schema = db.load_form_schema(conn)
+    assert {f["field_key"] for f in schema} >= {"category", "city", "phone"}
+    key = db.add_form_field(conn, label="Hostel Required?", field_type="select", required=True, options=["Yes", "No"])
+    assert key == "hostel_required"
+    key2 = db.add_form_field(conn, label="Hostel Required?", field_type="text", required=False)
+    assert key2 == "hostel_required_2"          # duplicate labels get unique keys
+    schema = db.load_form_schema(conn)
+    problems = db.validate_form_response(schema, {"category": "OBC", "city": "Pune", "phone": "9000000000", "hostel_required": "Maybe"})
+    assert any("Hostel Required?" in p for p in problems)
+    problems = db.validate_form_response(schema, {"category": "OBC", "city": "Pune", "phone": "9000000000", "hostel_required": "Yes", "gap_years": "x"})
+    assert any("must be a number" in p for p in problems)
+    db.remove_form_field(conn, key); db.remove_form_field(conn, key2)
+    assert not any(f["field_key"].startswith("hostel") for f in db.load_form_schema(conn))
+    with pytest.raises(ValueError):
+        db.add_form_field(conn, label="Bad", field_type="select", required=True, options=[])
+
+
+def test_document_upload_secure_path(seeded_conn, tmp_path, monkeypatch):
+    conn = seeded_conn
+    monkeypatch.setattr(db, "UPLOAD_DIR", tmp_path / "uploads")
+    aid = db.add_applicant(conn, name="Doc Tester", email="doc@test.demo", score=70, track="Engineering",
+                           ranked_program_ids=[1], form_data={"category": "General", "city": "Pune", "phone": "9"})
+    rel = db.save_document(conn, aid, "marksheet", "../../etc/passwd.PDF", b"%PDF-1.4 fake")
+    assert rel == f"uploads/{aid:06d}_12thMarksheet.pdf"       # client filename never used
+    assert (tmp_path / rel).read_bytes().startswith(b"%PDF")
+    row = conn.execute("SELECT marksheet_path, scorecard_path FROM applicants WHERE id = ?", (aid,)).fetchone()
+    assert row["marksheet_path"] == rel and row["scorecard_path"] is None
+    assert db.resolve_document(rel) == (tmp_path / rel).resolve()
+    assert db.resolve_document("uploads/../schema.sql") is None  # traversal guard
+    with pytest.raises(ValueError):
+        db.save_document(conn, aid, "scorecard", "virus.exe", b"MZ")
+    with pytest.raises(ValueError):
+        db.save_document(conn, aid, "scorecard", "big.png", b"0" * (db.MAX_UPLOAD_BYTES + 1))
+    # re-upload with a different extension replaces the old file
+    db.save_document(conn, aid, "marksheet", "scan.jpg", b"\xff\xd8 jpeg")
+    assert not (tmp_path / rel).exists()
+    assert (tmp_path / f"uploads/{aid:06d}_12thMarksheet.jpg").exists()
+
+
+def test_seeded_users_have_simulated_paths(seeded_conn):
+    df = db.load_applicants_full(seeded_conn)
+    assert df.marksheet_path.str.startswith("uploads/").all()
+    assert not df.marksheet_on_disk.iloc[:200].any()          # simulated, not materialised
+    assert "Category" in df.columns and df.Category.notna().all()

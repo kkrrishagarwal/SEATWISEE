@@ -8,8 +8,11 @@ Hard constraints
   (3) x[i, j] <= eligibility[i, j]       prerequisites + ranked + active
   (+) optional forced assignments / forbidden pairs for counterfactuals
 
-Objective
-  Mode A (initial)   : maximise sum_ij points(rank_ij) * x[i, j]
+Objective (all integer, lexicographic by scaling)
+  Mode A (initial)   : maximise SCALE * sum_ij points(rank_ij) * x[i, j]  +  sum_ij merit_i * x[i, j]
+                       The merit term (0..100 per seated applicant, earlier applicants get a +1 bonus
+                       via a timestamp rank) is a deterministic tie-breaker: SCALE exceeds the largest
+                       possible merit sum, so it can never override a preference-point difference.
   Mode B (reassign)  : maximise preference - mu * displacement
                        displacement = #applicants not keeping their previous seat
                                     = sum_i (1 - x[i, prev_i])   (per-applicant |x - prev|)
@@ -29,6 +32,17 @@ from optimization.problem import ProblemData, points_for_rank
 MODE_INITIAL = "initial"
 MODE_REASSIGN = "reassign"
 DEFAULT_MU = 1000  # displacement penalty; > 100 makes stability lexicographically dominant
+MERIT_WEIGHT = 1000            # merit (0..100) * MERIT_WEIGHT  +  earliness (0..999): merit dominates timestamp
+TIE_BREAK_MAX = 100 * MERIT_WEIGHT + 999
+
+
+def _scale(n_applicants: int) -> int:
+    """Smallest power of ten strictly larger than the max total tie-break bonus."""
+    bound = n_applicants * TIE_BREAK_MAX
+    scale = 10
+    while scale <= bound:
+        scale *= 10
+    return scale
 
 STATUS_NAMES = {
     cp_model.OPTIMAL: "OPTIMAL",
@@ -121,8 +135,10 @@ class AllocationModel:
         forbidden: Optional[Iterable[Tuple[int, int]]] = None,
         locked: Optional[Iterable[int]] = None,       # applicants whose previous seat is frozen
         time_limit_s: float = 20.0,
-        workers: int = 8,
+        workers: int = 1,                             # single worker + fixed seed => reproducible solutions
+        tie_break: bool = True,
     ):
+        self.tie_break = tie_break
         self.p = problem
         self.mode = mode
         self.mu = mu if mode == MODE_REASSIGN else 0
@@ -160,12 +176,24 @@ class AllocationModel:
             if i in p.previous:
                 m.Add(self.x[i, p.previous[i]] == 1)
 
+        self.scale = _scale(len(A))
         pref_terms = [
-            points_for_rank(p.pref_rank[i, j]) * self.x[i, j]
+            self.scale * points_for_rank(p.pref_rank[i, j]) * self.x[i, j]
             for (i, j) in p.pref_rank
             if (i, j) in self.x
         ]
-        objective = sum(pref_terms)
+        # Deterministic tie-break (lexicographic below preference points):
+        #   merit score * MERIT_WEIGHT  +  earliness bonus (999 for the first application, decreasing)
+        tie_terms = []
+        if self.tie_break:
+            order = sorted(A, key=lambda i: (p.applicant(i).applied_at or "9999", i))
+            early_bonus = {i: max(0, 999 - rank) for rank, i in enumerate(order)}
+            tie_terms = [
+                (min(100, max(0, p.applicant(i).score)) * MERIT_WEIGHT + early_bonus[i]) * self.x[i, j]
+                for (i, j) in p.pref_rank
+                if (i, j) in self.x
+            ]
+        objective = sum(pref_terms) + sum(tie_terms)
 
         if self.mode == MODE_REASSIGN and self.mu > 0:
             # Displacement = number of applicants who do NOT keep their previous seat:
@@ -180,7 +208,7 @@ class AllocationModel:
                 if prev_j is not None and (i, prev_j) in self.x:
                     disp_terms.append(1 - self.x[i, prev_j])
             self.displacement = sum(disp_terms)
-            objective = objective - self.mu * self.displacement
+            objective = objective - self.scale * self.mu * self.displacement
         else:
             self.displacement = None
 
@@ -200,8 +228,9 @@ class AllocationModel:
         res = SolveResult(status=status, mode=self.mode, wall_time_s=wall, mu=self.mu,
                           num_branches=solver.NumBranches(), num_conflicts=solver.NumConflicts())
         if status in ("OPTIMAL", "FEASIBLE"):
-            res.objective = solver.ObjectiveValue()
-            res.best_bound = solver.BestObjectiveBound()
+            # Report in preference-point units (tie-break term is < 1 point by construction).
+            res.objective = solver.ObjectiveValue() / self.scale
+            res.best_bound = solver.BestObjectiveBound() / self.scale
             assignment = {}
             for (i, j), var in self.x.items():
                 if solver.Value(var) == 1:
@@ -217,7 +246,7 @@ class AllocationModel:
                 hist[r] = hist.get(r, 0) + 1
             res.rank_histogram = dict(sorted(hist.items()))
             if status == "FEASIBLE":
-                res.notes.append("Optimality gap: objective %.0f vs bound %.0f" % (res.objective, res.best_bound))
+                res.notes.append("Optimality gap: objective %.2f vs bound %.2f (preference-point units)" % (res.objective, res.best_bound))
         elif status == "INFEASIBLE":
             res.notes.extend(self._diagnose_infeasibility())
         elif status == "UNKNOWN":

@@ -291,7 +291,7 @@ def save_document(conn: sqlite3.Connection, applicant_id: int, kind: str, filena
 
 def resolve_document(rel_path: Optional[str]) -> Optional[Path]:
     """Absolute path if the file exists on disk, else None (seeded users have simulated paths)."""
-    if not rel_path:
+    if not isinstance(rel_path, str) or not rel_path:
         return None
     p = (UPLOAD_DIR.parent / rel_path).resolve()
     if UPLOAD_DIR.resolve() not in p.parents:      # path-traversal guard
