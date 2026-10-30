@@ -280,7 +280,10 @@ def render_my_portal(c, aid: int) -> None:
     content = db.get_site_content(c)
     st.markdown(PORTAL_CSS, unsafe_allow_html=True)
 
-    if st.session_state.get("student_nav") not in NAV_OPTIONS:
+    intent = st.session_state.pop("post_login_intent", None)   # one-shot deep link from the public "Apply Now" CTA
+    if intent == "apply" and not db.has_applied(a):
+        st.session_state["student_nav"] = NAV_APPLY
+    elif st.session_state.get("student_nav") not in NAV_OPTIONS:
         st.session_state["student_nav"] = NAV_DASHBOARD          # post-login default: Dashboard, never the form
     with st.sidebar:
         st.markdown("#### Student menu")

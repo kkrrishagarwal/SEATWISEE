@@ -44,9 +44,12 @@ def resolve_page() -> str:
     elif role == auth.ROLE_STUDENT and auth.current_student_id():
         st.session_state["current_page"] = "student_portal"
     else:
-        # ?page=login from the HTML nav link on the home page
+        # ?page=login[&intent=apply] from the HTML nav / footer links on the home page
         if st.query_params.get("page") == "login":
             st.session_state["current_page"] = "login"
+            if st.query_params.get("intent") == "apply":
+                st.session_state["post_login_intent"] = "apply"
+                st.session_state["show_register"] = True
             st.query_params.clear()
         page = st.session_state.get("current_page", "home")
         if page not in ("home", "login"):
@@ -65,6 +68,7 @@ def render_sidebar() -> None:
             st.session_state["current_page"] = "home"
             st.session_state.pop("show_register", None)
             st.session_state.pop("student_nav", None)
+            st.session_state.pop("post_login_intent", None)
             st.rerun()
 
 

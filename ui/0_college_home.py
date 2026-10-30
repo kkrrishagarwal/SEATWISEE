@@ -58,8 +58,15 @@ div[data-testid="stButton"] > button {{ background:linear-gradient(135deg,var(--
 div[data-testid="stButton"] > button:hover {{ transform:translateY(-2px) scale(1.02); }}
 @keyframes pulse {{ 0% {{ box-shadow:0 0 0 0 rgba(245,179,1,.55),0 12px 30px rgba(245,179,1,.35); }} 70% {{ box-shadow:0 0 0 18px rgba(245,179,1,0),0 12px 30px rgba(245,179,1,.35); }} 100% {{ box-shadow:0 0 0 0 rgba(245,179,1,0),0 12px 30px rgba(245,179,1,.35); }} }}
 div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) p {{ color:rgba(255,255,255,.72); margin:0; }}
-.nav .cta {{ margin-left:28px; padding:9px 16px; border-radius:10px; background:linear-gradient(135deg,var(--gold),#FF9F1C); color:var(--navy) !important; font-weight:800 !important; }}
+.nav .cta {{ margin-left:14px; padding:10px 18px; border-radius:10px; background:linear-gradient(135deg,var(--gold),#FF9F1C); color:var(--navy) !important; font-weight:800 !important;
+  box-shadow:0 8px 22px rgba(245,179,1,.35); animation:pulse 2.2s infinite; }}
 .nav .cta:hover {{ color:var(--navy) !important; filter:brightness(1.06); }}
+.nav .ghost {{ margin-left:28px; padding:9px 16px; border-radius:10px; border:1.5px solid rgba(255,255,255,.45); color:var(--white) !important; font-weight:700 !important; }}
+.nav .ghost:hover {{ border-color:var(--gold-2); color:var(--gold-2) !important; }}
+/* secondary (ghost) Streamlit button in the hero band, selected by its key */
+.st-key-cta_login button {{ background:transparent !important; color:var(--white) !important; border:1.5px solid rgba(255,255,255,.55) !important;
+  box-shadow:none !important; animation:none !important; }}
+.st-key-cta_login button:hover {{ border-color:var(--gold-2) !important; color:var(--gold-2) !important; }}
 
 .section {{ padding:90px 6vw; }} .section.alt {{ background:var(--white); }}
 .section.navy {{ background:radial-gradient(1200px 500px at 10% 0%,#1B3B6B 0%,var(--navy) 55%); color:var(--white); }}
@@ -110,7 +117,7 @@ def nav(content: dict) -> None:
     st.html(f"""
 <div class="nav">
   <div class="brand"><div class="crest">{name[:1]}</div> {name}</div>
-  <div class="links"><a href="#programs">Programs</a><a href="#campus">Campus</a><a href="#admissions">Admissions</a><a href="#contact">Contact</a><a class="cta" href="?page=login" target="_self">Login / Register</a></div>
+  <div class="links"><a href="#programs">Programs</a><a href="#campus">Campus</a><a href="#admissions">Admissions</a><a href="#contact">Contact</a><a class="ghost" href="?page=login" target="_self">Login / Register</a><a class="cta" href="?page=login&intent=apply" target="_self">Apply Now</a></div>
 </div>""")
 
 
@@ -221,13 +228,19 @@ def render(c) -> None:
     inject_css()
     nav(content)
     hero(content)
-    c1, c2 = st.columns([1, 4])
+    c1, c2, c3 = st.columns([1, 1, 3])
     with c1:
-        if st.button("Login / Register →", key="cta_login", width="stretch"):
+        if st.button("Apply Now →", key="cta_apply", width="stretch"):
+            st.session_state["post_login_intent"] = "apply"
+            st.session_state["show_register"] = True          # new students start at the account form
             st.session_state["current_page"] = "login"
             st.rerun()
     with c2:
-        st.markdown("Students · Admissions office · one secure gateway powered by SEATWISEE")
+        if st.button("Login / Register", key="cta_login", width="stretch"):
+            st.session_state["current_page"] = "login"
+            st.rerun()
+    with c3:
+        st.markdown("Admissions 2026 · create an account, submit your application, track your allotment")
     programs(programs_df)
     campus(stats)
     admissions(content)
