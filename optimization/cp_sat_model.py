@@ -137,8 +137,10 @@ class AllocationModel:
         time_limit_s: float = 20.0,
         workers: int = 1,                             # single worker + fixed seed => reproducible solutions
         tie_break: bool = True,
+        objective_mode: str = "preference_first",     # preference_first | merit_first (lexicographic stages)
     ):
         self.tie_break = tie_break
+        self.objective_mode = objective_mode
         self.p = problem
         self.mode = mode
         self.mu = mu if mode == MODE_REASSIGN else 0
@@ -194,6 +196,12 @@ class AllocationModel:
                 if (i, j) in self.x
             ]
         objective = sum(pref_terms) + sum(tie_terms)
+        # Expressions kept for the lexicographic (merit_first) solve path.
+        self.expr_assigned = sum(self.x[i, j] for (i, j) in self.x)
+        self.expr_merit = sum(min(100, max(0, p.applicant(i).score)) * self.x[i, j] for (i, j) in self.x)
+        self.expr_pref = sum(points_for_rank(p.pref_rank[i, j]) * self.x[i, j] for (i, j) in p.pref_rank if (i, j) in self.x)
+        order_all = sorted(A, key=lambda i: (p.applicant(i).applied_at or "9999", i))
+        self.expr_early = sum(max(0, 999 - r) * self.x[i, j] for r, i in enumerate(order_all) for j in P if (i, j) in self.x)
 
         if self.mode == MODE_REASSIGN and self.mu > 0:
             # Displacement = number of applicants who do NOT keep their previous seat:
@@ -216,6 +224,54 @@ class AllocationModel:
 
     # ----------------------------------------------------------------- solve
     def solve(self) -> SolveResult:
+        if self.objective_mode == "merit_first":
+            return self._solve_lexicographic()
+        return self._solve_single()
+
+    def _solve_lexicographic(self) -> SolveResult:
+        """Approved hierarchy, each level solved to optimality then fixed before the next:
+        (0) reassign mode only: minimise displacement  (1) maximise seats filled
+        (2) maximise entrance-score merit of seated applicants  (3) maximise preference points
+        (4) earliest application wins remaining ties."""
+        stages = []
+        if self.mode == MODE_REASSIGN and self.displacement is not None:
+            stages.append(("displacement", self.displacement, False))
+        stages += [("assigned", self.expr_assigned, True), ("merit", self.expr_merit, True),
+                   ("preference", self.expr_pref, True), ("earliness", self.expr_early, True)]
+        t0 = time.perf_counter()
+        last = None
+        per_stage = max(1.0, self.time_limit_s / len(stages))
+        stage_values = {}
+        for name, expr, maximize in stages:
+            self.model.ClearObjective()
+            if maximize:
+                self.model.Maximize(expr)
+            else:
+                self.model.Minimize(expr)
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = per_stage
+            solver.parameters.num_search_workers = self.workers
+            solver.parameters.random_seed = 7
+            raw = solver.Solve(self.model)
+            status = STATUS_NAMES.get(raw, "UNKNOWN")
+            if status not in ("OPTIMAL", "FEASIBLE"):
+                res = SolveResult(status=status, mode=self.mode, wall_time_s=time.perf_counter() - t0, mu=self.mu)
+                if status == "INFEASIBLE":
+                    res.notes.extend(self._diagnose_infeasibility())
+                res.notes.append(f"lexicographic stage '{name}' ended with {status}")
+                return res
+            val = int(round(solver.ObjectiveValue()))
+            stage_values[name] = val
+            self.model.Add(expr == val)          # fix this level before optimising the next
+            last = (solver, status)
+        solver, status = last
+        res = self._result_from_solver(solver, status, time.perf_counter() - t0)
+        res.objective = float(stage_values.get("preference", 0))
+        res.best_bound = res.objective
+        res.notes.insert(0, "policy merit_first · stage optima: " + ", ".join(f"{k}={v}" for k, v in stage_values.items()))
+        return res
+
+    def _solve_single(self) -> SolveResult:
         solver = cp_model.CpSolver()
         solver.parameters.max_time_in_seconds = self.time_limit_s
         solver.parameters.num_search_workers = self.workers
@@ -224,13 +280,19 @@ class AllocationModel:
         raw = solver.Solve(self.model)
         wall = time.perf_counter() - t0
         status = STATUS_NAMES.get(raw, "UNKNOWN")
-
-        res = SolveResult(status=status, mode=self.mode, wall_time_s=wall, mu=self.mu,
-                          num_branches=solver.NumBranches(), num_conflicts=solver.NumConflicts())
-        if status in ("OPTIMAL", "FEASIBLE"):
+        res = self._result_from_solver(solver, status, wall)
+        if res.has_solution:
             # Report in preference-point units (tie-break term is < 1 point by construction).
             res.objective = solver.ObjectiveValue() / self.scale
             res.best_bound = solver.BestObjectiveBound() / self.scale
+            if status == "FEASIBLE":
+                res.notes.append("Optimality gap: objective %.2f vs bound %.2f (preference-point units)" % (res.objective, res.best_bound))
+        return res
+
+    def _result_from_solver(self, solver, status: str, wall: float) -> SolveResult:
+        res = SolveResult(status=status, mode=self.mode, wall_time_s=wall, mu=self.mu,
+                          num_branches=solver.NumBranches(), num_conflicts=solver.NumConflicts())
+        if status in ("OPTIMAL", "FEASIBLE"):
             assignment = {}
             for (i, j), var in self.x.items():
                 if solver.Value(var) == 1:
@@ -245,8 +307,6 @@ class AllocationModel:
                 r = self.p.pref_rank.get((i, j), 0)
                 hist[r] = hist.get(r, 0) + 1
             res.rank_histogram = dict(sorted(hist.items()))
-            if status == "FEASIBLE":
-                res.notes.append("Optimality gap: objective %.2f vs bound %.2f (preference-point units)" % (res.objective, res.best_bound))
         elif status == "INFEASIBLE":
             res.notes.extend(self._diagnose_infeasibility())
         elif status == "UNKNOWN":
@@ -280,10 +340,11 @@ class AllocationModel:
 
 
 # ------------------------------------------------------------------ convenience wrappers
-def solve_initial(problem: ProblemData, time_limit_s: float = 20.0) -> SolveResult:
-    return AllocationModel(problem, mode=MODE_INITIAL, time_limit_s=time_limit_s).solve()
+def solve_initial(problem: ProblemData, time_limit_s: float = 20.0, objective_mode: str = "preference_first") -> SolveResult:
+    return AllocationModel(problem, mode=MODE_INITIAL, time_limit_s=time_limit_s, objective_mode=objective_mode).solve()
 
 
-def solve_reassign(problem: ProblemData, mu: int = DEFAULT_MU, time_limit_s: float = 20.0) -> SolveResult:
-    """Capacity shock / withdrawal: preserve `problem.previous` as far as mathematically possible."""
-    return AllocationModel(problem, mode=MODE_REASSIGN, mu=mu, time_limit_s=time_limit_s).solve()
+def solve_reassign(problem: ProblemData, mu: int = DEFAULT_MU, time_limit_s: float = 20.0, locked=None,
+                   objective_mode: str = "preference_first") -> SolveResult:
+    """Capacity shock / withdrawal: preserve `problem.previous` as far as mathematically possible; `locked` seats are hard."""
+    return AllocationModel(problem, mode=MODE_REASSIGN, mu=mu, time_limit_s=time_limit_s, locked=locked, objective_mode=objective_mode).solve()

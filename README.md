@@ -1,37 +1,41 @@
-# SEATWISEE  ·  public UI "DO! u want"
+# DO! u want · SEATWISEE
+**Discover Opportunities. Unlock Your Future.** — a college admission website with an intelligent, auditable seat-allocation engine.
 
-**Gateway:** the app opens on a single unified login (Email or Username + Password) plus a *Register as New Student* button; the sidebar stays hidden until you sign in. `admin` / `admin123` → admin workspace. Students: *Register as New Student* creates an account (name, email, phone, address, password) and signs them in; the educational application (score, track, admin-defined fields, ranked preferences, 12th marksheet + entrance scorecard uploads) is completed inside the portal under **Apply Now**. Seeded demo applicants have no password and sign in with email only. Landing-page text is editable by the admin in the **Website Editor** tab (CMS stored in the `site_content` table).
+| Experience | What it is |
+|---|---|
+| Public website (`?page=home…`) | Home, About Us, Academics, Courses (+ detail pages), Admissions (+ FAQ), Campus Life, Contact. CMS-editable copy, local demo imagery in `assets/images/`, live program data. |
+| Unified login | One sign-in for students and administrators; role resolved from the database. Account registration and forgot-password. |
+| Student portal | Dashboard with application tracking · Apply Now (score, track, admin-defined fields, up to N ranked programs, two mandatory uploads) · My Application · Admission Result (accept offer, allotment letter) · Withdrawal request · Appeal · Notifications · Downloads (receipt, evaluation report, allotment). |
+| Administrator workspace | Overview · Program Management · All Applications (filters, CSV/PDF) · Selected Candidates (program-wise) · Allocation Management · Reallocation Management (authorise withdrawals, capacity changes, vacancy report) · Appeals (counterfactual evaluation + decision) · Analytics · Notifications (integration status, delivery log, test send) · Announcements + website CMS · Audit History · Settings (policy, form builder, admin password). |
 
-Auditable, constraint-based seat allocation and decision support (hackathon PS06 / FAIRSHIFT).
+## Engine (Google OR-Tools CP-SAT)
+* Hard constraints: one seat per applicant, program capacity, eligibility (score floor + track + ranked), withdrawn applicants unseated, confirmed admissions locked (policy), forced/forbidden pairs for appeals.
+* Policies are **configurable, never invented**: `preference_first` (maximise ranked-preference points, entrance score breaks ties) or `merit_first` (lexicographic: seats filled → entrance-score merit → preferences → earliest application). Max preferences and the reallocation displacement penalty are settings too. Every published version stores its policy snapshot.
+* Reallocation (withdrawals, capacity changes) re-optimises with minimal disruption; vacancies are filled by the next qualifying applicant or explained in the vacancy report.
+* Appeals are evaluated counterfactually (force the request, re-optimise, report who is affected). Administrators decide.
+* An **independent pure-Python validator** must pass before any version is published. Solver statuses (OPTIMAL / FEASIBLE / INFEASIBLE / UNKNOWN / MODEL_INVALID) are reported honestly.
 
-* **Math**: Google OR-Tools CP-SAT. `x[i,j] ∈ {0,1}`; one seat per applicant, capacity, eligibility are hard.
-  * Mode A: maximise preference points (rank 1→100, 2→50, 3→20, 4→10, 5→5).
-  * Mode B: maximise preference − μ·displacement, where displacement = applicants not keeping their seat.
-* **Counterfactual appeals**: clone state, force `x[s,t] = 1`, re-solve, report who moves and the preference delta.
-* **Independent validator**: pure Python rule checker, zero OR-Tools; solver output is persisted only if it passes.
-* **Solver statuses** are reported honestly: OPTIMAL / FEASIBLE (unproven) / INFEASIBLE (proven) / UNKNOWN (timeout).
-* **Persistence**: SQLite with versioned runs, capacity-change history, appeals and an append-only audit log.
-* **Dynamic forms**: admins add/remove application fields (text / number / select) in the Form Builder; responses are stored as JSON per applicant.
-* **Documents**: uploads are written under secure names (`uploads/000123_12thMarksheet.pdf`), extension-whitelisted, size-capped, path-traversal guarded; the admin can preview/download them.
-* **RBAC**: session-state login gateway; the student portal has three sections — Home / Dashboard (status + progress), Apply Now (educational form + uploads, mock email receipt), Check Allotment Result (seat card + allotment letter PDF). Accounts that have not applied are excluded from the solver pool.
-* **Admin workspace** has five tabs: Command Center (KPIs, Mode A, occupancy) · Disruptions & Appeals (capacity shocks, withdrawals, Mode B, what-if sandbox with Sankey) · Student Records & Forms · Website Editor (CMS) · Audit Trail (validator, run history, audit log).
+## Notifications
+In-app always. Email (SMTP) and WhatsApp (Business Cloud API) send **only when configured**; every attempt is logged with the provider's real response, deduplicated per event. See `.env.example`.
 
 ## Run
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-.venv/bin/python -m database.db_manager      # (re)seed 200 applicants / 10 programs
-.venv/bin/python -m pytest -q                # 27 tests
+.venv/bin/python -m assets.generate_images         # demo imagery (already committed)
+.venv/bin/python -m database.db_manager            # (re)seed 200 synthetic applicants / 10 programs
+.venv/bin/python -m pytest -q                      # test suite
 .venv/bin/streamlit run app.py
 ```
+Admin: `admin` / `admin123` (change it under Settings or set `SEATWISEE_ADMIN_PASSWORD` before first run). Demo student: `applicant001@seatwisee.demo`, no password.
 
 ## Deploy on Render (free plan)
-This repo ships a `render.yaml` Blueprint for a **free** Python web service.
+`render.yaml` is a Blueprint. Push to GitHub → New + → Blueprint → Apply. Set the SMTP / WhatsApp variables from `.env.example` under Environment. The free instance has an ephemeral disk: data re-seeds on restart; for persistence use a paid instance with a disk and set `SEATWISEE_DB` / `SEATWISEE_UPLOADS` to it.
 
-1. Push this repo to GitHub.
-2. In Render: **New + → Blueprint → select the repo → Apply**.
-3. Open the service URL. The app seeds 200 demo applicants on first boot. Admin login: `admin` / `admin123`.
-
-The free instance has an ephemeral filesystem: the SQLite database and uploaded documents reset when the service
-restarts or spins down after 15 minutes idle (first request afterwards takes ~1 minute to wake). For persistence,
-switch to a paid instance and add a disk mounted at `/var/data`, then set `SEATWISEE_DB=/var/data/seatwisee.db`
-and `SEATWISEE_UPLOADS=/var/data/uploads`.
+## Structure
+```
+app.py                router        ui/public/site.py     public website      ui/login_gateway.py   unified auth
+ui/1_student_portal.py              ui/admin/workspace.py admin sections      ui/common.py          charts, PDFs
+database/schema.sql + db_manager.py                       optimization/{problem,cp_sat_model,validator,counterfactual,reallocation_engine,metrics}.py
+services/{auth,application,notification,email,whatsapp}_service.py             reports/{evaluation_pdf,application_pdf}.py
+assets/images + assets/generate_images.py                 tests/test_{allocation,reallocation,appeals,notifications,auth}.py
+```

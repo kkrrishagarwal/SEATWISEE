@@ -34,7 +34,8 @@ class ValidationReport:
         return [v.__dict__ for v in self.violations]
 
 
-def validate(problem: ProblemData, assignment: Dict[int, int], forced: Optional[Dict[int, int]] = None) -> ValidationReport:
+def validate(problem: ProblemData, assignment: Dict[int, int], forced: Optional[Dict[int, int]] = None,
+             locked: Optional[Dict[int, int]] = None) -> ValidationReport:
     rep = ValidationReport()
     cap = problem.capacity
     program_ids = set(problem.program_ids)
@@ -82,6 +83,13 @@ def validate(problem: ProblemData, assignment: Dict[int, int], forced: Optional[
         for a, p in forced.items():
             if assignment.get(a) != p:
                 rep.violations.append(Violation("forced_honoured", a, p, f"forced placement of {a} into {p} not present"))
+
+    # Rule 6: locked (confirmed) seats must be unchanged
+    if locked:
+        rep.checks_run.append("locked_seats_kept")
+        for a, p in locked.items():
+            if problem.applicant(a).status == "active" and assignment.get(a) != p:
+                rep.violations.append(Violation("locked_seats_kept", a, p, f"confirmed seat of {a} in {p} was changed"))
 
     return rep
 

@@ -72,6 +72,7 @@ def evaluate_appeal(
     target_program_id: int,
     mu: int = DEFAULT_MU,
     time_limit_s: float = 20.0,
+    locked: Optional[Dict[int, int]] = None,
 ) -> CounterfactualResult:
     """Clone the state, force the request, re-solve, and quantify the ripple effect."""
     p = copy.deepcopy(problem)                     # never mutate the live state
@@ -81,7 +82,8 @@ def evaluate_appeal(
     if baseline.get(applicant_id) == target_program_id:
         pre.append("applicant already holds the requested program in the baseline allocation")
 
-    model = AllocationModel(p, mode=MODE_REASSIGN, mu=mu, forced={applicant_id: target_program_id}, time_limit_s=time_limit_s)
+    locked = {a: pr for a, pr in (locked or {}).items() if a != applicant_id}
+    model = AllocationModel(p, mode=MODE_REASSIGN, mu=mu, forced={applicant_id: target_program_id}, locked=list(locked), time_limit_s=time_limit_s)
     solve = model.solve()
     feasible = solve.has_solution
 
@@ -93,7 +95,7 @@ def evaluate_appeal(
     if feasible:
         alt = solve.assignment
         result.metrics = compare(p, baseline, alt)
-        result.validation = validate(p, alt, forced={applicant_id: target_program_id})
+        result.validation = validate(p, alt, forced={applicant_id: target_program_id}, locked=locked)
         for aid, (b, a) in sorted(result.metrics["moved"].items()):
             appl = p.applicant(aid)
             br, ar = p.pref_rank.get((aid, b)) if b else None, p.pref_rank.get((aid, a)) if a else None

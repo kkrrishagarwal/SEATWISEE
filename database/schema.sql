@@ -118,3 +118,64 @@ CREATE TABLE IF NOT EXISTS site_content (
     content_text TEXT NOT NULL,
     updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- ============================================================ Phase 2+ additions (additive, migration-safe)
+CREATE TABLE IF NOT EXISTS admin_users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE,
+    email         TEXT,
+    password_hash TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    last_login    TEXT
+);
+
+-- Configurable policies and settings (never hardcode admission rules).
+CREATE TABLE IF NOT EXISTS settings (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS notifications (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    applicant_id      INTEGER REFERENCES applicants(id),
+    channel           TEXT NOT NULL CHECK (channel IN ('in_app', 'email', 'whatsapp')),
+    event             TEXT NOT NULL,
+    subject           TEXT,
+    body              TEXT NOT NULL,
+    status            TEXT NOT NULL CHECK (status IN ('queued', 'sent', 'failed', 'not_configured', 'skipped')),
+    provider_response TEXT,
+    dedupe_key        TEXT UNIQUE,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    read_at           TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_notif_applicant ON notifications(applicant_id, created_at);
+
+CREATE TABLE IF NOT EXISTS withdrawals (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    applicant_id INTEGER NOT NULL REFERENCES applicants(id),
+    reason       TEXT,
+    status       TEXT NOT NULL DEFAULT 'requested' CHECK (status IN ('requested', 'approved', 'rejected')),
+    requested_at TEXT NOT NULL DEFAULT (datetime('now')),
+    decided_at   TEXT,
+    decided_by   TEXT,
+    run_id_after INTEGER REFERENCES allocation_runs(id),
+    released_program_id INTEGER REFERENCES programs(id)
+);
+
+CREATE TABLE IF NOT EXISTS password_resets (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    applicant_id INTEGER NOT NULL REFERENCES applicants(id),
+    token        TEXT NOT NULL UNIQUE,
+    created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+    used         INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS announcements (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    audience   TEXT NOT NULL DEFAULT 'all' CHECK (audience IN ('all', 'students', 'public')),
+    is_active  INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
