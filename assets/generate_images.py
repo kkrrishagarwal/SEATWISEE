@@ -1,5 +1,5 @@
 """Generate licensed-free demonstration imagery locally (no external URLs). Run: python -m assets.generate_images
-Produces stylised campus scenes as JPEGs in assets/images/. Replace with real photographs any time; same filenames."""
+Produces stylised campus scenes as JPEGs in static/images/ (served at app/static/images/). Replace with real photographs any time; same filenames."""
 from __future__ import annotations
 
 import math
@@ -8,7 +8,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
-OUT = Path(__file__).resolve().parent / "images"
+OUT = Path(__file__).resolve().parents[1] / "static" / "images"   # served by Streamlit at app/static/images/
 
 SCENES = {
     # key: (title, sky top, sky bottom, ground, accent)

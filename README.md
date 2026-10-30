@@ -3,7 +3,7 @@
 
 | Experience | What it is |
 |---|---|
-| Public website (`?page=home…`) | Home, About Us, Academics, Courses (+ detail pages), Admissions (+ FAQ), Campus Life, Contact. CMS-editable copy, local demo imagery in `assets/images/`, live program data. |
+| Public website (`?page=home…`) | Home, About Us, Academics, Courses (+ detail pages), Admissions (+ FAQ), Campus Life, Contact. CMS-editable copy, local demo imagery in `static/images/` (served by Streamlit), live program data. |
 | Unified login | One sign-in for students and administrators; role resolved from the database. Account registration and forgot-password. |
 | Student portal | Dashboard with application tracking · Apply Now (score, track, admin-defined fields, up to N ranked programs, two mandatory uploads) · My Application · Admission Result (accept offer, allotment letter) · Withdrawal request · Appeal · Notifications · Downloads (receipt, evaluation report, allotment). |
 | Administrator workspace | Overview · Program Management · All Applications (filters, CSV/PDF) · Selected Candidates (program-wise) · Allocation Management · Reallocation Management (authorise withdrawals, capacity changes, vacancy report) · Appeals (counterfactual evaluation + decision) · Analytics · Notifications (integration status, delivery log, test send) · Announcements + website CMS · Audit History · Settings (policy, form builder, admin password). |
@@ -37,5 +37,5 @@ app.py                router        ui/public/site.py     public website      ui
 ui/1_student_portal.py              ui/admin/workspace.py admin sections      ui/common.py          charts, PDFs
 database/schema.sql + db_manager.py                       optimization/{problem,cp_sat_model,validator,counterfactual,reallocation_engine,metrics}.py
 services/{auth,application,notification,email,whatsapp}_service.py             reports/{evaluation_pdf,application_pdf}.py
-assets/images + assets/generate_images.py                 tests/test_{allocation,reallocation,appeals,notifications,auth}.py
+static/images + assets/generate_images.py                 tests/test_{allocation,reallocation,appeals,notifications,auth}.py
 ```

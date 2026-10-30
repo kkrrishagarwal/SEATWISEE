@@ -15,7 +15,7 @@ import streamlit as st
 
 from database import db_manager as db
 
-ASSETS = Path(__file__).resolve().parents[2] / "assets" / "images"
+ASSETS = Path(__file__).resolve().parents[2] / "static" / "images"
 BRAND = "DO! u want"
 TAGLINE_DEFAULT = "Discover Opportunities. Unlock Your Future."
 PUBLIC_PAGES = [("home", "Home"), ("about", "About Us"), ("academics", "Academics"), ("courses", "Courses"),
@@ -29,12 +29,12 @@ def esc(x) -> str:
 
 @lru_cache(maxsize=64)
 def img(name: str) -> str:
-    """data: URI for a local asset; falls back to a flat colour if missing (never a broken external URL)."""
+    """URL of a local asset served by Streamlit's static file server (cached by the browser).
+    Falls back to an inline flat colour if the file is missing — never a broken external URL."""
     p = ASSETS / name
     if not p.exists():
         return "data:image/svg+xml;utf8," + "<svg xmlns='http://www.w3.org/2000/svg' width='16' height='9'><rect width='16' height='9' fill='%230B1F3A'/></svg>"
-    mime = "image/png" if p.suffix.lower() == ".png" else "image/jpeg"
-    return f"data:{mime};base64," + base64.b64encode(p.read_bytes()).decode()
+    return f"app/static/images/{name}"
 
 
 CSS = """
