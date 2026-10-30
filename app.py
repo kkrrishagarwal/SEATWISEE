@@ -40,9 +40,10 @@ with st.sidebar:
         st.markdown("#### Sign in")
         mode = st.radio("I am a", ["Student", "Admin / Teacher"], horizontal=True, key="login_mode")
         if mode == "Admin / Teacher":
+            st.caption("Demo credentials: username **admin** · password **admin123**")
             with st.form("admin_login"):
-                u = st.text_input("Username", key="login_user")
-                pw = st.text_input("Password", type="password", key="login_pw")
+                u = st.text_input("Username", key="login_user", value="admin")
+                pw = st.text_input("Password", type="password", key="login_pw", placeholder="admin123")
                 go = st.form_submit_button("Sign in", type="primary")
             if go:
                 if auth.login_admin(u, pw, c):

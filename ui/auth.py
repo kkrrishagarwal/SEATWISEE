@@ -20,8 +20,11 @@ ROLE_STUDENT = "student"
 
 
 def _check_admin(user: str, password: str) -> bool:
+    # Tolerate copy/paste whitespace and username casing; the password itself stays case-sensitive.
+    user = (user or "").strip().lower()
+    password = (password or "").strip()
     digest = hashlib.sha256((_SALT + password).encode()).hexdigest()
-    return user.strip() == ADMIN_USER and hmac.compare_digest(digest, _ADMIN_HASH)
+    return user == ADMIN_USER and hmac.compare_digest(digest, _ADMIN_HASH)
 
 
 def current_role() -> Optional[str]:
@@ -38,7 +41,7 @@ def login_admin(user: str, password: str, conn) -> bool:
         st.session_state["auth_name"] = "Administrator"
         db.log_audit(conn, "admin", "login", {"user": ADMIN_USER})
         return True
-    db.log_audit(conn, "system", "login_failed", {"user": user[:40], "role": "admin"})
+    db.log_audit(conn, "system", "login_failed", {"user": (user or "")[:40], "role": "admin", "pw_len": len(password or "")})
     return False
 
 
