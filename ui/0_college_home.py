@@ -64,9 +64,12 @@ div[data-testid="stHorizontalBlock"]:has(div[data-testid="stButton"]) p {{ color
 .nav .ghost {{ margin-left:28px; padding:9px 16px; border-radius:10px; border:1.5px solid rgba(255,255,255,.45); color:var(--white) !important; font-weight:700 !important; }}
 .nav .ghost:hover {{ border-color:var(--gold-2); color:var(--gold-2) !important; }}
 /* secondary (ghost) Streamlit button in the hero band, selected by its key */
-.st-key-cta_login button {{ background:transparent !important; color:var(--white) !important; border:1.5px solid rgba(255,255,255,.55) !important;
+div[data-testid="stButton"] > button * {{ color:var(--navy) !important; font-weight:800 !important; }}
+.st-key-cta_login div[data-testid="stButton"] > button {{ background:transparent !important; border:1.5px solid rgba(255,255,255,.6) !important;
   box-shadow:none !important; animation:none !important; }}
-.st-key-cta_login button:hover {{ border-color:var(--gold-2) !important; color:var(--gold-2) !important; }}
+.st-key-cta_login div[data-testid="stButton"] > button * {{ color:var(--white) !important; font-weight:700 !important; }}
+.st-key-cta_login div[data-testid="stButton"] > button:hover {{ border-color:var(--gold-2) !important; }}
+.st-key-cta_login div[data-testid="stButton"] > button:hover * {{ color:var(--gold-2) !important; }}
 
 .section {{ padding:90px 6vw; }} .section.alt {{ background:var(--white); }}
 .section.navy {{ background:radial-gradient(1200px 500px at 10% 0%,#1B3B6B 0%,var(--navy) 55%); color:var(--white); }}
