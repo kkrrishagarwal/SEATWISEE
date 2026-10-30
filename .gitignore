@@ -9,7 +9,9 @@ venv/
 *.db
 *.db-journal
 *.sqlite
+# Uploaded documents (keep the folder, not the files)
+uploads/*
+!uploads/.gitkeep
 # Streamlit / misc
 .streamlit/secrets.toml
-*.pdf
 .DS_Store

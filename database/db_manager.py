@@ -7,7 +7,9 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -18,6 +20,19 @@ from optimization.problem import Applicant, Program, ProblemData
 ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 DEFAULT_DB_PATH = os.environ.get("SEATWISEE_DB", str(ROOT / "seatwisee.db"))
+UPLOAD_DIR = Path(os.environ.get("SEATWISEE_UPLOADS", str(ROOT / "uploads")))
+ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg"}
+MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+DOC_KINDS = {"marksheet": "12thMarksheet", "scorecard": "EntranceScorecard"}
+
+DEFAULT_FORM_FIELDS = [
+    # key, label, type, required, options
+    ("category", "Category", "select", 1, ["General", "OBC", "SC", "ST", "EWS"]),
+    ("city", "City", "text", 1, None),
+    ("phone", "Phone number", "text", 1, None),
+    ("gap_years", "Gap years after 12th", "number", 0, None),
+]
+CITIES = ["Delhi", "Mumbai", "Bengaluru", "Hyderabad", "Pune", "Kolkata", "Jaipur", "Lucknow", "Bhopal", "Chennai"]
 
 TRACKS = ["Engineering", "Science", "Commerce", "Arts"]
 
@@ -56,14 +71,27 @@ def get_conn(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
 
 def init_db(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA_PATH.read_text())
+    _migrate(conn)
     conn.commit()
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after the first release to databases created before them."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(applicants)")}
+    wanted = {
+        "form_data": "TEXT", "marksheet_path": "TEXT", "scorecard_path": "TEXT",
+        "applied_at": "TEXT NOT NULL DEFAULT (datetime('now'))",
+    }
+    for col, ddl in wanted.items():
+        if col not in cols:
+            conn.execute(f"ALTER TABLE applicants ADD COLUMN {col} {ddl}")
 
 
 def reset_db(conn: sqlite3.Connection) -> None:
     init_db(conn)
     tables = [
         "audit_log", "appeals", "capacity_changes", "assignments",
-        "allocation_runs", "preferences", "applicants", "programs",
+        "allocation_runs", "preferences", "applicants", "programs", "form_schema",
     ]
     for t in tables:
         conn.execute(f"DELETE FROM {t}")
@@ -103,17 +131,31 @@ def seed_demo(conn: sqlite3.Connection, n_applicants: int = 200, seed: int = 42)
             (code, name, cap, min_score, track),
         )
     programs = {row["code"]: dict(row) for row in cur.execute("SELECT * FROM programs")}
+    seed_form_schema(conn)
+    base_time = datetime(2026, 10, 1, 9, 0, 0)
 
     for i in range(1, n_applicants + 1):
         track = rng.choices(TRACKS, weights=[0.42, 0.2, 0.23, 0.15])[0]
         score = max(30, min(100, int(rng.gauss(68, 14))))
         name = f"{rng.choice(FIRST_NAMES)} {rng.choice(LAST_NAMES)}"
         email = f"applicant{i:03d}@seatwisee.demo"
+        form_data = {
+            "category": rng.choices(["General", "OBC", "SC", "ST", "EWS"], weights=[0.4, 0.27, 0.15, 0.08, 0.1])[0],
+            "city": rng.choice(CITIES),
+            "phone": "9" + "".join(str(rng.randint(0, 9)) for _ in range(9)),
+            "gap_years": rng.choice([0, 0, 0, 1, 2]),
+        }
+        applied_at = (base_time + timedelta(minutes=rng.randint(0, 20000))).strftime("%Y-%m-%d %H:%M:%S")
         cur.execute(
-            "INSERT INTO applicants (name, email, score, track) VALUES (?,?,?,?)",
-            (name, email, score, track),
+            "INSERT INTO applicants (name, email, score, track, form_data, applied_at) VALUES (?,?,?,?,?,?)",
+            (name, email, score, track, json.dumps(form_data), applied_at),
         )
         aid = cur.lastrowid
+        # Simulated document paths for seeded users (files are not materialised on disk).
+        cur.execute(
+            "UPDATE applicants SET marksheet_path = ?, scorecard_path = ? WHERE id = ?",
+            (document_path(aid, "marksheet", "pdf"), document_path(aid, "scorecard", "pdf"), aid),
+        )
 
         # Applicants mostly rank programs they are plausibly eligible for, with some reach picks.
         eligible = [
@@ -138,6 +180,125 @@ def seed_demo(conn: sqlite3.Connection, n_applicants: int = 200, seed: int = 42)
     log_audit(conn, "system", "seed", {"applicants": n_applicants, "programs": len(PROGRAM_CATALOG), "seed": seed})
 
 
+# --------------------------------------------------------------------------- dynamic form schema
+def seed_form_schema(conn: sqlite3.Connection) -> None:
+    if conn.execute("SELECT COUNT(*) FROM form_schema").fetchone()[0]:
+        return
+    for order, (key, label, ftype, req, options) in enumerate(DEFAULT_FORM_FIELDS):
+        conn.execute(
+            "INSERT INTO form_schema (field_key, label, field_type, required, options, sort_order) VALUES (?,?,?,?,?,?)",
+            (key, label, ftype, req, json.dumps(options) if options else None, order),
+        )
+    conn.commit()
+
+
+def load_form_schema(conn: sqlite3.Connection) -> List[dict]:
+    rows = conn.execute("SELECT * FROM form_schema ORDER BY sort_order, id").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["options"] = json.loads(d["options"]) if d["options"] else []
+        d["required"] = bool(d["required"])
+        out.append(d)
+    return out
+
+
+def slugify_key(label: str) -> str:
+    key = re.sub(r"[^a-z0-9]+", "_", label.strip().lower()).strip("_")
+    return key or "field"
+
+
+def add_form_field(conn: sqlite3.Connection, *, label: str, field_type: str, required: bool, options: Optional[Sequence[str]] = None) -> str:
+    if field_type not in ("text", "number", "select"):
+        raise ValueError("field_type must be text, number or select")
+    if field_type == "select" and not options:
+        raise ValueError("select fields need at least one option")
+    key = base = slugify_key(label)
+    n = 2
+    while conn.execute("SELECT 1 FROM form_schema WHERE field_key = ?", (key,)).fetchone():
+        key = f"{base}_{n}"
+        n += 1
+    order = conn.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 FROM form_schema").fetchone()[0]
+    conn.execute(
+        "INSERT INTO form_schema (field_key, label, field_type, required, options, sort_order) VALUES (?,?,?,?,?,?)",
+        (key, label.strip(), field_type, int(required), json.dumps(list(options)) if options else None, order),
+    )
+    conn.commit()
+    log_audit(conn, "admin", "form_field_added", {"key": key, "label": label, "type": field_type, "required": required})
+    return key
+
+
+def remove_form_field(conn: sqlite3.Connection, field_key: str) -> None:
+    conn.execute("DELETE FROM form_schema WHERE field_key = ?", (field_key,))
+    conn.commit()
+    log_audit(conn, "admin", "form_field_removed", {"key": field_key})
+
+
+def validate_form_response(schema: List[dict], response: Dict[str, object]) -> List[str]:
+    """Return a list of human-readable problems (empty = valid)."""
+    problems = []
+    for f in schema:
+        v = response.get(f["field_key"])
+        empty = v is None or (isinstance(v, str) and not v.strip())
+        if f["required"] and empty:
+            problems.append(f"'{f['label']}' is required")
+        elif not empty and f["field_type"] == "number":
+            try:
+                float(v)
+            except (TypeError, ValueError):
+                problems.append(f"'{f['label']}' must be a number")
+        elif not empty and f["field_type"] == "select" and v not in f["options"]:
+            problems.append(f"'{f['label']}' must be one of {f['options']}")
+    return problems
+
+
+# --------------------------------------------------------------------------- documents (local file system)
+def safe_extension(filename: str) -> str:
+    ext = Path(filename).suffix.lower().lstrip(".")
+    if ext not in ALLOWED_EXTENSIONS:
+        raise ValueError(f"file type '.{ext}' not allowed; use {sorted(ALLOWED_EXTENSIONS)}")
+    return ext
+
+
+def document_path(applicant_id: int, kind: str, ext: str) -> str:
+    """Secure, predictable relative path: uploads/000123_12thMarksheet.pdf. Never uses the client filename."""
+    if kind not in DOC_KINDS:
+        raise ValueError(f"unknown document kind {kind}")
+    if ext not in ALLOWED_EXTENSIONS:
+        raise ValueError(f"extension {ext} not allowed")
+    return f"{UPLOAD_DIR.name}/{int(applicant_id):06d}_{DOC_KINDS[kind]}.{ext}"
+
+
+def save_document(conn: sqlite3.Connection, applicant_id: int, kind: str, filename: str, data: bytes) -> str:
+    """Write bytes to uploads/ under a secure name and record the path on the applicant row."""
+    if len(data) > MAX_UPLOAD_BYTES:
+        raise ValueError(f"file exceeds {MAX_UPLOAD_BYTES // (1024*1024)} MB limit")
+    if not data:
+        raise ValueError("empty file")
+    ext = safe_extension(filename)
+    rel = document_path(applicant_id, kind, ext)
+    UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    # remove stale versions with a different extension
+    for old in UPLOAD_DIR.glob(f"{int(applicant_id):06d}_{DOC_KINDS[kind]}.*"):
+        old.unlink()
+    (UPLOAD_DIR.parent / rel).write_bytes(data)
+    col = "marksheet_path" if kind == "marksheet" else "scorecard_path"
+    conn.execute(f"UPDATE applicants SET {col} = ? WHERE id = ?", (rel, applicant_id))
+    conn.commit()
+    log_audit(conn, "student", "document_uploaded", {"applicant_id": applicant_id, "kind": kind, "path": rel, "bytes": len(data)})
+    return rel
+
+
+def resolve_document(rel_path: Optional[str]) -> Optional[Path]:
+    """Absolute path if the file exists on disk, else None (seeded users have simulated paths)."""
+    if not rel_path:
+        return None
+    p = (UPLOAD_DIR.parent / rel_path).resolve()
+    if UPLOAD_DIR.resolve() not in p.parents:      # path-traversal guard
+        return None
+    return p if p.is_file() else None
+
+
 # --------------------------------------------------------------------------- reads
 def load_programs(conn: sqlite3.Connection) -> pd.DataFrame:
     return pd.read_sql_query("SELECT * FROM programs ORDER BY id", conn)
@@ -148,6 +309,18 @@ def load_applicants(conn: sqlite3.Connection, active_only: bool = False) -> pd.D
     if active_only:
         q += " WHERE status = 'active'"
     return pd.read_sql_query(q + " ORDER BY id", conn)
+
+
+def load_applicants_full(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Applicants joined with dynamic form responses (one column per field) and document flags."""
+    df = pd.read_sql_query("SELECT * FROM applicants ORDER BY id", conn)
+    schema = load_form_schema(conn)
+    parsed = df["form_data"].apply(lambda v: json.loads(v) if v else {})
+    for f in schema:
+        df[f["label"]] = parsed.apply(lambda d, k=f["field_key"]: d.get(k))
+    df["marksheet_on_disk"] = df["marksheet_path"].apply(lambda p: resolve_document(p) is not None)
+    df["scorecard_on_disk"] = df["scorecard_path"].apply(lambda p: resolve_document(p) is not None)
+    return df.drop(columns=["form_data"])
 
 
 def load_preferences(conn: sqlite3.Connection) -> pd.DataFrame:
@@ -202,7 +375,8 @@ def get_current_assignment_map(conn: sqlite3.Connection) -> Dict[int, int]:
 def build_problem(conn: sqlite3.Connection, previous: Optional[Dict[int, int]] = None) -> ProblemData:
     """Assemble a ProblemData from the DB. `previous` defaults to the current persisted allocation."""
     applicants = [
-        Applicant(id=r["id"], name=r["name"], score=r["score"], track=r["track"], status=r["status"], email=r["email"])
+        Applicant(id=r["id"], name=r["name"], score=r["score"], track=r["track"], status=r["status"], email=r["email"],
+                  applied_at=r["applied_at"] or "")
         for r in conn.execute("SELECT * FROM applicants ORDER BY id")
     ]
     programs = [
@@ -290,10 +464,14 @@ def reinstate_applicant(conn: sqlite3.Connection, applicant_id: int) -> None:
 
 
 def add_applicant(
-    conn: sqlite3.Connection, *, name: str, email: str, score: int, track: str, ranked_program_ids: Sequence[int]
+    conn: sqlite3.Connection, *, name: str, email: str, score: int, track: str, ranked_program_ids: Sequence[int],
+    form_data: Optional[Dict[str, object]] = None,
 ) -> int:
     cur = conn.cursor()
-    cur.execute("INSERT INTO applicants (name, email, score, track) VALUES (?,?,?,?)", (name, email.lower().strip(), score, track))
+    cur.execute(
+        "INSERT INTO applicants (name, email, score, track, form_data) VALUES (?,?,?,?,?)",
+        (name, email.lower().strip(), score, track, json.dumps(form_data or {})),
+    )
     aid = cur.lastrowid
     for rank, pid in enumerate(ranked_program_ids, start=1):
         cur.execute("INSERT INTO preferences (applicant_id, program_id, rank) VALUES (?,?,?)", (aid, pid, rank))

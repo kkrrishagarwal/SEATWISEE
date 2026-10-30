@@ -26,6 +26,7 @@ class Applicant:
     track: str
     status: str = "active"
     email: str = ""
+    applied_at: str = ""   # ISO timestamp; earlier applications win ties
 
 
 @dataclass

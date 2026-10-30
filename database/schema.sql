@@ -18,6 +18,22 @@ CREATE TABLE IF NOT EXISTS applicants (
     score      INTEGER NOT NULL CHECK (score BETWEEN 0 AND 100),
     track      TEXT NOT NULL,
     status     TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'withdrawn')),
+    form_data       TEXT,                 -- JSON: responses to the admin-defined dynamic form
+    marksheet_path  TEXT,                 -- uploads/<id>_12thMarksheet.<ext>
+    scorecard_path  TEXT,                 -- uploads/<id>_EntranceScorecard.<ext>
+    applied_at      TEXT NOT NULL DEFAULT (datetime('now')),  -- tie-break key
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Admin-configurable application form (rendered dynamically in the student portal).
+CREATE TABLE IF NOT EXISTS form_schema (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    field_key  TEXT NOT NULL UNIQUE,      -- machine key stored in applicants.form_data JSON
+    label      TEXT NOT NULL,
+    field_type TEXT NOT NULL CHECK (field_type IN ('text', 'number', 'select')),
+    required   INTEGER NOT NULL DEFAULT 1,
+    options    TEXT,                      -- JSON list for select fields
+    sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
