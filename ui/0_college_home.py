@@ -83,7 +83,7 @@ div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stAlert"] 
 .tile {{ border-radius:22px; background-size:cover; background-position:center; position:relative; overflow:hidden; box-shadow:0 16px 40px rgba(0,0,0,.25); }}
 .tile.big {{ grid-row:span 2; }} .tile::after {{ content:""; position:absolute; inset:0; background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(11,31,58,.85) 100%); }}
 .tile span {{ position:absolute; left:20px; bottom:18px; z-index:2; color:var(--white); font-weight:800; font-size:1.05rem; }}
-.counters {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:18px; margin-top:44px; }}
+.counters {{ display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:44px; }}
 .counter {{ text-align:center; padding:26px 16px; border-radius:20px; background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.14); backdrop-filter:blur(10px); }}
 .counter b {{ display:block; font-size:2.4rem; font-weight:900; background:linear-gradient(90deg,var(--gold-2),var(--neon)); -webkit-background-clip:text; background-clip:text; color:transparent; }}
 .counter small {{ color:rgba(255,255,255,.78); font-weight:600; letter-spacing:.5px; }}
@@ -98,7 +98,7 @@ div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stAlert"] 
 .footer h4 {{ color:var(--white); margin:0 0 14px; font-size:1rem; letter-spacing:1px; text-transform:uppercase; }}
 .footer a, .footer .line {{ color:rgba(255,255,255,.7); text-decoration:none; display:block; margin-bottom:9px; }} .footer a:hover {{ color:var(--gold-2); }}
 .footer .bottom {{ border-top:1px solid rgba(255,255,255,.1); margin-top:44px; padding-top:20px; display:flex; justify-content:space-between; font-size:.85rem; color:rgba(255,255,255,.5); flex-wrap:wrap; gap:10px; }}
-@media (max-width:900px) {{ .masonry {{ grid-template-columns:1fr 1fr; grid-template-rows:200px 200px 200px; }} .tile.big {{ grid-column:span 2; grid-row:span 1; }}
+@media (max-width:900px) {{ .counters {{ grid-template-columns:repeat(2,1fr); }} .masonry {{ grid-template-columns:1fr 1fr; grid-template-rows:200px 200px 200px; }} .tile.big {{ grid-column:span 2; grid-row:span 1; }}
   .banner, .footer .cols {{ grid-template-columns:1fr; }} .nav .links {{ display:none; }} div[data-testid="stColumn"]:has([data-testid="stForm"]) {{ margin-top:-60px; }} }}
 </style>
 """
