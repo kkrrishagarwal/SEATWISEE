@@ -1,0 +1,29 @@
+# Render Blueprint for SEATWISEE ("DO! u want")
+# Deploy: Render dashboard -> New + -> Blueprint -> pick this repo, or
+#         https://render.com/deploy?repo=<your GitHub repo URL>
+services:
+  - type: web
+    name: seatwisee
+    runtime: python
+    region: singapore            # closest Render region to India; change if your team is elsewhere
+    plan: starter                # paid plan is required for a persistent disk (uses your credits)
+    branch: master
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.port $PORT --server.address 0.0.0.0 --server.headless true
+    healthCheckPath: /_stcore/health
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: SEATWISEE_DB
+        value: /var/data/seatwisee.db
+      - key: SEATWISEE_UPLOADS
+        value: /var/data/uploads
+      - key: STREAMLIT_SERVER_ENABLE_CORS
+        value: "false"
+      - key: STREAMLIT_BROWSER_GATHER_USAGE_STATS
+        value: "false"
+    disk:
+      name: seatwisee-data
+      mountPath: /var/data
+      sizeGB: 1

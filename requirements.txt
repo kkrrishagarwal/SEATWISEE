@@ -1,6 +1,7 @@
-ortools>=9.10
-streamlit>=1.35
-plotly>=5.20
-pandas>=2.0
-pytest>=8.0
-reportlab>=4.0
+ortools==9.15.6755
+streamlit==1.66.1
+plotly==7.1.0
+pandas==3.1.0
+numpy==2.5.4
+reportlab==5.1.0
+pytest==9.2.0

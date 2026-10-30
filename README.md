@@ -23,3 +23,13 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pytest -q                # 23 tests
 .venv/bin/streamlit run app.py
 ```
+
+## Deploy on Render
+This repo ships a `render.yaml` Blueprint: a Python web service on the **starter** plan with a 1 GB persistent disk mounted at `/var/data`.
+The database (`SEATWISEE_DB`) and uploaded documents (`SEATWISEE_UPLOADS`) live on that disk, so they survive restarts and redeploys.
+
+1. Push this repo to GitHub.
+2. In Render: **New + → Blueprint → select the repo → Apply**. Render reads `render.yaml` and creates the service and disk.
+3. Open the service URL. The app seeds 200 demo applicants on first boot. Admin login: `admin` / `admin123`.
+
+Free-plan note: the free instance type does not support disks. Remove the `disk:` block and set `plan: free` if you want a zero-cost demo; data then resets on every restart.
