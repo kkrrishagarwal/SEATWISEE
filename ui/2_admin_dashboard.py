@@ -1,6 +1,9 @@
 """Admin dashboard — metrics, allocation triggers, capacity shocks, withdrawals, validator, audit."""
 from __future__ import annotations
 
+import base64
+import json
+
 import pandas as pd
 import streamlit as st
 
@@ -44,7 +47,8 @@ def render() -> None:
     k4.metric("Current run", f"#{current['id']} · {current['mode']}" if current else "none")
     k5.metric("Solver status", current["solver_status"] if current else "—")
 
-    tab_alloc, tab_shock, tab_valid, tab_data, tab_audit = st.tabs(["Allocate", "Capacity shock & withdrawals", "Validate", "Data", "Audit trail"])
+    tab_alloc, tab_shock, tab_valid, tab_students, tab_form, tab_data, tab_audit = st.tabs(
+        ["Allocate", "Capacity shock & withdrawals", "Validate", "Students & documents", "Form builder", "Data", "Audit trail"])
 
     # ---------------- Allocate
     with tab_alloc:
@@ -145,6 +149,14 @@ def render() -> None:
             st.dataframe(occ, hide_index=True, width="stretch")
             st.caption("Note: the current run may have been solved against older capacities. A capacity cut shows here as a violation until you re-allocate — that is the point of the check.")
 
+    # ---------------- Students & documents
+    with tab_students:
+        _render_students(c)
+
+    # ---------------- Form builder
+    with tab_form:
+        _render_form_builder(c)
+
     # ---------------- Data
     with tab_data:
         if cur_assign or current:
@@ -170,3 +182,108 @@ def render() -> None:
     # ---------------- Audit
     with tab_audit:
         st.dataframe(db.load_audit(c, 500), hide_index=True, width="stretch", height=500)
+
+
+# =====================================================================================
+def _doc_block(rel_path, title, key):
+    st.markdown(f"**{title}**")
+    path = db.resolve_document(rel_path)
+    if not rel_path:
+        st.caption("not uploaded")
+        return
+    if path is None:
+        st.caption(f"`{rel_path}` · path recorded, file not on disk (simulated seed record)")
+        return
+    data = path.read_bytes()
+    st.caption(f"`{rel_path}` · {len(data)/1024:.1f} KB")
+    if path.suffix.lower() == ".pdf":
+        b64 = base64.b64encode(data).decode()
+        st.markdown(f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="360"></iframe>', unsafe_allow_html=True)
+    else:
+        try:
+            st.image(data, width=360)
+        except Exception:
+            st.warning("Image could not be rendered (corrupt or unsupported). Use the download button.")
+    st.download_button(f"Download {title}", data, file_name=path.name, key=key)
+
+
+def _render_students(c):
+    st.markdown("Every applicant with their dynamic form responses and document status. Pick one to view uploaded files.")
+    df = db.load_applicants_full(c)
+    schema = db.load_form_schema(c)
+    dyn_cols = [f["label"] for f in schema]
+    f1, f2, f3 = st.columns(3)
+    q = f1.text_input("Search name / email", key="stu_search")
+    track = f2.multiselect("Track", sorted(df.track.unique()), key="stu_track")
+    docs = f3.selectbox("Documents", ["All", "Files on disk", "Simulated / missing"], key="stu_docs")
+    view = df.copy()
+    if q:
+        m = view.name.str.contains(q, case=False) | view.email.str.contains(q, case=False)
+        view = view[m]
+    if track:
+        view = view[view.track.isin(track)]
+    if docs == "Files on disk":
+        view = view[view.marksheet_on_disk | view.scorecard_on_disk]
+    elif docs == "Simulated / missing":
+        view = view[~(view.marksheet_on_disk & view.scorecard_on_disk)]
+    show = view[["id", "name", "email", "score", "track", "status", "applied_at"] + dyn_cols + ["marksheet_on_disk", "scorecard_on_disk"]].rename(
+        columns={"marksheet_on_disk": "Marksheet file", "scorecard_on_disk": "Scorecard file"})
+    st.dataframe(show, hide_index=True, width="stretch", height=380,
+                 column_config={"Marksheet file": st.column_config.CheckboxColumn(), "Scorecard file": st.column_config.CheckboxColumn()})
+    st.download_button("Download students CSV", show.to_csv(index=False).encode(), "students.csv", "text/csv", key="stu_csv")
+
+    st.divider()
+    st.subheader("View documents")
+    labels = {f"{r.id} · {r.name} ({r.email})": int(r.id) for r in view.itertuples()}
+    if not labels:
+        st.info("No students match the filter.")
+        return
+    pick = st.selectbox("Student", list(labels.keys()), key="stu_pick")
+    aid = labels[pick]
+    row = c.execute("SELECT * FROM applicants WHERE id = ?", (aid,)).fetchone()
+    data = json.loads(row["form_data"] or "{}")
+    st.write(" · ".join(f"**{f['label']}**: {data.get(f['field_key'], '—')}" for f in schema) or "no form responses")
+    d1, d2 = st.columns(2)
+    with d1:
+        _doc_block(row["marksheet_path"], "12th Board Marksheet", key=f"adm_dl_m_{aid}")
+    with d2:
+        _doc_block(row["scorecard_path"], "Entrance Exam Scorecard", key=f"adm_dl_s_{aid}")
+
+
+def _render_form_builder(c):
+    st.markdown("Configure the extra fields students must fill in. Changes apply to the registration form immediately. Existing responses are kept.")
+    schema = db.load_form_schema(c)
+    if schema:
+        tbl = pd.DataFrame([{"Key": f["field_key"], "Label": f["label"], "Type": f["field_type"], "Required": f["required"],
+                             "Options": ", ".join(f["options"]) if f["options"] else ""} for f in schema])
+        st.dataframe(tbl, hide_index=True, width="stretch")
+    else:
+        st.info("No custom fields yet.")
+    a1, a2 = st.columns(2)
+    with a1:
+        st.markdown("**Add a field**")
+        with st.form("add_field", clear_on_submit=True):
+            label = st.text_input("Label", placeholder="e.g. Hostel required?")
+            ftype = st.selectbox("Type", ["text", "number", "select"])
+            required = st.checkbox("Required", value=True)
+            options = st.text_input("Options for select (comma separated)", placeholder="Yes, No")
+            ok = st.form_submit_button("Add field", type="primary")
+        if ok:
+            opts = [o.strip() for o in options.split(",") if o.strip()] if ftype == "select" else None
+            if not label.strip():
+                st.error("Label is required.")
+            else:
+                try:
+                    key = db.add_form_field(c, label=label, field_type=ftype, required=required, options=opts)
+                    st.success(f"Added field '{label}' (key `{key}`).")
+                    st.rerun()
+                except ValueError as e:
+                    st.error(str(e))
+    with a2:
+        st.markdown("**Remove a field**")
+        if schema:
+            rm = st.selectbox("Field", [f["field_key"] for f in schema], format_func=lambda k: next(f["label"] for f in schema if f["field_key"] == k), key="rm_field")
+            if st.button("Remove field"):
+                db.remove_form_field(c, rm)
+                st.success("Removed.")
+                st.rerun()
