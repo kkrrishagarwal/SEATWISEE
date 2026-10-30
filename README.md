@@ -24,12 +24,14 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/streamlit run app.py
 ```
 
-## Deploy on Render
-This repo ships a `render.yaml` Blueprint: a Python web service on the **starter** plan with a 1 GB persistent disk mounted at `/var/data`.
-The database (`SEATWISEE_DB`) and uploaded documents (`SEATWISEE_UPLOADS`) live on that disk, so they survive restarts and redeploys.
+## Deploy on Render (free plan)
+This repo ships a `render.yaml` Blueprint for a **free** Python web service.
 
 1. Push this repo to GitHub.
-2. In Render: **New + → Blueprint → select the repo → Apply**. Render reads `render.yaml` and creates the service and disk.
+2. In Render: **New + → Blueprint → select the repo → Apply**.
 3. Open the service URL. The app seeds 200 demo applicants on first boot. Admin login: `admin` / `admin123`.
 
-Free-plan note: the free instance type does not support disks. Remove the `disk:` block and set `plan: free` if you want a zero-cost demo; data then resets on every restart.
+The free instance has an ephemeral filesystem: the SQLite database and uploaded documents reset when the service
+restarts or spins down after 15 minutes idle (first request afterwards takes ~1 minute to wake). For persistence,
+switch to a paid instance and add a disk mounted at `/var/data`, then set `SEATWISEE_DB=/var/data/seatwisee.db`
+and `SEATWISEE_UPLOADS=/var/data/uploads`.
