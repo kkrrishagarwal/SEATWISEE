@@ -350,14 +350,14 @@ def test_seeded_users_have_simulated_paths(seeded_conn):
 def test_site_content_seed_update_reset(seeded_conn):
     conn = seeded_conn
     content = db.get_site_content(conn)
-    assert content["hero_title"] == "Welcome to SEATWISEE"
+    assert content["hero_title"] == db.DEFAULT_SITE_CONTENT["hero_title"][1]
     assert {"announcements", "about_us"} <= set(content)
     db.set_site_content(conn, "hero_title", "Admissions 2026")
     assert db.get_site_text(conn, "hero_title") == "Admissions 2026"
     db.init_db(conn)                                   # re-running the migration must NOT overwrite edits
     assert db.get_site_text(conn, "hero_title") == "Admissions 2026"
     db.reset_site_content(conn, "hero_title")
-    assert db.get_site_text(conn, "hero_title") == "Welcome to SEATWISEE"
+    assert db.get_site_text(conn, "hero_title") == db.DEFAULT_SITE_CONTENT["hero_title"][1]
     with pytest.raises(ValueError):
         db.set_site_content(conn, "bad key!", "x")
     assert (db.load_audit(conn).action == "site_content_updated").any()

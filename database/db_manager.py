@@ -36,8 +36,9 @@ CITIES = ["Delhi", "Mumbai", "Bengaluru", "Hyderabad", "Pune", "Kolkata", "Jaipu
 
 # CMS defaults: section_key -> (label shown to the admin, default text)
 DEFAULT_SITE_CONTENT = {
-    "hero_title": ("Hero title", "Welcome to SEATWISEE"),
-    "hero_subtitle": ("Hero subtitle", "DO! u want — fair, transparent seat allocation for every applicant."),
+    "institute_name": ("Institute name", "Syntaxis Institute of Technology"),
+    "hero_title": ("Hero title", "Empowering the Next Generation of Innovators."),
+    "hero_subtitle": ("Hero subtitle", "A research-driven campus where engineering, data science and management converge. Fair, transparent seat allocation powered by the SEATWISEE constraint engine."),
     "announcements": ("Announcements", "Admissions 2026 are open. Rank up to five programs and upload your 12th marksheet and entrance scorecard. Allocation results will be published by the admissions office."),
     "about_us": ("About us", "Seats are allocated by a constraint-programming engine (Google OR-Tools CP-SAT) that maximises preference satisfaction while respecting eligibility and capacity. Every decision is explainable and independently validated."),
     "contact_info": ("Contact info", "Admissions Office · admissions@seatwisee.demo · +91 120 456 7890 · Mon–Sat 9:00–17:30 IST"),

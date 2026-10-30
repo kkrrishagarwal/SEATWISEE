@@ -31,55 +31,52 @@ admin = importlib.import_module("ui.2_admin_dashboard")
 c = conn()
 role = auth.current_role()
 
-HIDE_SIDEBAR_CSS = """
-<style>
-[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"] { display: none !important; }
-.gate-card { background: white; border: 1px solid rgba(15,23,42,.08); border-radius: 18px; padding: 8px 4px 2px; box-shadow: 0 12px 36px rgba(11,31,58,.10); }
-.gate-announce { background: #FFF7E0; border-left: 4px solid #F5B301; padding: 12px 16px; border-radius: 10px; color: #4B3A00; }
-.gate-about { color: #475569; font-size: .95rem; line-height: 1.6; }
-</style>
-"""
+college = importlib.import_module("ui.0_college_home")
+
+
+def _login_card() -> None:
+    """Unified login (real Streamlit form) rendered as a floating card over the hero."""
+    if st.session_state.get("show_register"):
+        with st.form("register_shell", border=False):
+            st.markdown("### Register as a new student")
+            st.form_submit_button("← Back to login", on_click=lambda: st.session_state.update(show_register=False))
+        student.render_registration(c, compact=True)
+        return
+    with st.form("unified_login"):
+        st.markdown("### Portal sign in")
+        st.caption("Students use their registered email (password not required). Admissions office uses its username and password.")
+        ident = st.text_input("Email or Username", key="login_ident", placeholder="applicant001@seatwisee.demo  or  admin")
+        pw = st.text_input("Password", type="password", key="login_pw", placeholder="students: leave blank")
+        go = st.form_submit_button("Sign in", type="primary", width="stretch")
+    if go:
+        if auth.login_unified(ident, pw, c):
+            st.rerun()
+        st.error("Invalid credentials.")
+    if st.button("Register as New Student", key="goto_register", width="stretch"):
+        st.session_state["show_register"] = True
+        st.rerun()
 
 
 def render_gateway() -> None:
-    st.markdown(HIDE_SIDEBAR_CSS, unsafe_allow_html=True)
+    """Public college website with the unified login embedded under the hero."""
     content = db.get_site_content(c)
-    _, mid, _ = st.columns([1, 2.2, 1])
+    programs = db.load_programs(c)
+    stats = {
+        "programs": len(programs),
+        "seats": int(programs.capacity.sum()) if len(programs) else 0,
+        "applicants": c.execute("SELECT COUNT(*) FROM applicants WHERE status='active'").fetchone()[0],
+    }
+    college.inject_css()
+    st.html('<div id="top"></div>')
+    college.nav(content)
+    college.hero(content)
+    _, mid, _ = st.columns([1, 1.3, 1])
     with mid:
-        st.markdown(
-            f"<h1 style='text-align:center;margin-bottom:0'>{content['hero_title']}</h1>"
-            f"<p style='text-align:center;color:gray;margin-top:6px'>{content['hero_subtitle']}</p>",
-            unsafe_allow_html=True,
-        )
-        if content.get("announcements", "").strip():
-            st.markdown(f"<div class='gate-announce'><b>Announcements</b><br>{content['announcements']}</div>", unsafe_allow_html=True)
-        st.markdown("")
-
-        if st.session_state.get("show_register"):
-            st.subheader("Register as a new student")
-            if st.button("← Back to login", key="back_to_login"):
-                st.session_state["show_register"] = False
-                st.rerun()
-            student.render_registration(c, compact=True)
-            return
-
-        with st.form("unified_login"):
-            st.markdown("#### Sign in")
-            ident = st.text_input("Email or Username", key="login_ident", placeholder="applicant001@seatwisee.demo  or  admin")
-            pw = st.text_input("Password", type="password", key="login_pw", placeholder="students: leave blank · admin: admin123")
-            go = st.form_submit_button("Sign in", type="primary", width="stretch")
-        if go:
-            resolved = auth.login_unified(ident, pw, c)
-            if resolved:
-                st.rerun()
-            st.error("Invalid credentials.")
-        if st.button("Register as New Student", key="goto_register", width="stretch"):
-            st.session_state["show_register"] = True
-            st.rerun()
-
-        with st.expander("About us"):
-            st.markdown(f"<p class='gate-about'>{content['about_us']}</p>", unsafe_allow_html=True)
-            st.caption(content.get("contact_info", ""))
+        _login_card()
+    college.programs(programs)
+    college.campus(stats)
+    college.admissions(content)
+    college.footer(content)
 
 
 def render_sidebar() -> None:
