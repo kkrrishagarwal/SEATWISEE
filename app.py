@@ -16,6 +16,23 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+
+def _load_dotenv() -> None:
+    """Load KEY=VALUE pairs from a local .env (never committed) into the environment. Existing variables win."""
+    import os
+    env = Path(__file__).resolve().parent / ".env"
+    if not env.exists():
+        return
+    for line in env.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+_load_dotenv()
+
 from ui import auth  # noqa: E402
 from ui.common import BRAND, SYSTEM, conn  # noqa: E402
 

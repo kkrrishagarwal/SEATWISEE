@@ -15,3 +15,6 @@ uploads/*
 # Streamlit / misc
 .streamlit/secrets.toml
 .DS_Store
+
+# local secrets
+.env
