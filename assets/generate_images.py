@@ -55,7 +55,7 @@ def _font(size):
     return ImageFont.load_default()
 
 
-def scene(key, title, top, bottom, ground, accent, w=1600, h=900, seed=1):
+def scene(key, title, top, bottom, ground, accent, w=1600, h=900, seed=1, caption=True):
     rng = random.Random(seed)
     img = _gradient(w, h, top, bottom)
     d = ImageDraw.Draw(img)
@@ -86,6 +86,8 @@ def scene(key, title, top, bottom, ground, accent, w=1600, h=900, seed=1):
         d.ellipse((tx - r, ty - r, tx + r, ty + r), fill=_lerp(ground, (20, 60, 20), rng.uniform(0.2, 0.7)))
     img = img.filter(ImageFilter.GaussianBlur(0.6))
     d = ImageDraw.Draw(img)
+    if not caption:
+        return img
     d.rectangle((0, h - 120, w, h), fill=(0, 0, 0))
     d.text((40, h - 95), title, font=_font(54), fill=(255, 255, 255))
     d.text((40, h - 38), "Demonstration image · generated locally · replace with campus photographs", font=_font(20), fill=(200, 200, 200))
@@ -107,7 +109,7 @@ def program_card(key, title, top, bottom, w=900, h=560):
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     for i, (k, (title, top, bottom, ground, accent)) in enumerate(SCENES.items()):
-        scene(k, title, top, bottom, ground, accent, seed=i + 1).save(OUT / f"{k}.jpg", quality=82, optimize=True)
+        scene(k, title, top, bottom, ground, accent, seed=i + 1, caption=(k != "hero")).save(OUT / f"{k}.jpg", quality=82, optimize=True)
     for k, (title, top, bottom) in PROGRAMS.items():
         program_card(k, title, top, bottom).save(OUT / f"program_{k}.jpg", quality=82, optimize=True)
     # logo
