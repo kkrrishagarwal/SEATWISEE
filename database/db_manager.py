@@ -474,6 +474,9 @@ def upsert_program(conn: sqlite3.Connection, *, program_id: Optional[int], code:
     if capacity < 0 or not 0 <= min_score <= 100:
         raise ValueError("capacity must be >= 0 and min score 0-100")
     track = required_track if required_track else None
+    clash = conn.execute("SELECT id FROM programs WHERE upper(code) = ? AND id IS NOT ?", (code, program_id)).fetchone()
+    if clash:
+        raise ValueError(f"program code '{code}' is already used by another program; choose a unique Program ID")
     if program_id is None:
         cur = conn.execute(
             "INSERT INTO programs (code, name, capacity, min_score, required_track, department, duration, description, is_open, image_key) VALUES (?,?,?,?,?,?,?,?,?,?)",

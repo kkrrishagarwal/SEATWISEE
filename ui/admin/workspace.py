@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from collections import Counter
 
 import pandas as pd
@@ -101,8 +102,8 @@ def sec_programs(c):
             db.upsert_program(c, program_id=pid, code=code, name=name, capacity=int(cap), min_score=int(mins), required_track=None if track == "Any" else track,
                               department=dept, duration=dur, description=desc, is_open=is_open)
             st.success("Saved." + (" Capacity changed: run a reallocation under Reallocation Management." if row is not None and int(cap) != int(row.capacity) else "")); st.rerun()
-        except ValueError as e:
-            st.error(str(e))
+        except (ValueError, sqlite3.IntegrityError) as e:
+            st.error(f"Could not save: {e}")
     if pid:
         refs = db.program_references(c, pid)
         if st.button("Delete program", key="pm_delete"):
