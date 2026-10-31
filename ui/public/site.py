@@ -185,7 +185,7 @@ def nav(content: dict, active: str, settings: dict) -> None:
   <div class="links">{links}<a class="ghost" href="?page=login" target="_self">Student Login</a><a class="cta" href="?page=login&intent=apply" target="_self">Apply Now</a></div>
 </div>""")
     if settings.get("demo_mode", "1") == "1":
-        st.html('<div class="demo-banner">Demonstration mode · applicants and statistics are synthetic sample data; photographs are placeholders until real images are added.</div>')
+        st.html('<div class="demo-banner">Demonstration mode · applicants and statistics are synthetic sample data; photographs are representative openly licensed campus images.</div>')
 
 
 def page_head(title: str, sub: str, slot: str, crumb: str) -> None:
@@ -280,7 +280,7 @@ def steps_html() -> str:
 def venue_html() -> str:
     return f"""
 <section class="section navy" id="venue"><div class="venue">
-  {im.figure('venue', 'R.D. Engineering College, Ghaziabad', 'location_city')}
+  <div>{im.figure('venue', 'Campus photograph', 'location_city')}<p style="color:rgba(255,255,255,.55);font-size:.78rem;margin:10px 4px 0">Representative campus photograph.</p></div>
   <div><div class="vlabel">{ic('flag')} Competition venue</div><div class="kicker">Where SEATWISEE is presented</div><h2>{esc(VENUE_NAME)}</h2>
   <p class="lead">SEATWISEE is being demonstrated at {VENUE_EVENT}, hosted at {esc(VENUE_NAME)}. R.D. Engineering College is the competition venue; the admissions platform and the DO! u want brand belong to the Syntaxis Institute of Technology demonstration.</p>
   <div class="vfacts"><div class="vfact"><small>Venue</small><b>{esc(VENUE_NAME)}</b></div><div class="vfact"><small>Location</small><b>{esc(VENUE_CITY)}</b></div>
@@ -328,7 +328,7 @@ def page_home(c, content, settings):
     st.html(venue_html())
     st.html(f"""
 <section class="section alt" id="campus"><div class="kicker">Campus life</div><h2>Where ideas get built</h2>
-  <p class="lead">Classrooms, laboratories, library, sports and a packed calendar of student events. Photographs will replace the placeholders below.</p>
+  <p class="lead">Classrooms, laboratories, library, sports and a packed calendar of student events.</p>
   <div class="gallery">{gallery}</div><p style="margin-top:22px"><a class="btn navy" href="?page=campus" target="_self">Explore campus life {ic('arrow_forward')}</a></p></section>
 <section class="section lav" id="announcements"><div class="kicker">Announcements</div><h2>Latest updates</h2><div class="grid">{_announcements_html(c, content)}</div></section>""")
 
@@ -457,7 +457,7 @@ def page_campus(c, content, settings):
                   ("facility_labs", "science", "Laboratories", "Electronics, mechanical, biotech and data labs."),
                   ("facility_hostel", "apartment", "Residences", "On-campus hostels with dining and support.")]
     fac = "".join(f"<div class='card'>{im.figure(slot, title, icon, 'sm')}<div class='body'><h3>{ic(icon)}{title}</h3><p>{d}</p></div></div>" for slot, icon, title, d in facilities)
-    st.html(f"""<section class="section alt"><div class="kicker">Gallery</div><h2>Campus gallery</h2><p class="lead">Each tile is a dedicated photo slot; add files to static/images/photos to replace the placeholders.</p><div class="gallery">{gallery}</div></section>
+    st.html(f"""<section class="section alt"><div class="kicker">Gallery</div><h2>Campus gallery</h2><p class="lead">A glimpse of life across the campus.</p><div class="gallery">{gallery}</div></section>
 <section class="section lav"><div class="kicker">Facilities</div><h2>Academic facilities</h2><div class="grid">{fac}</div></section>
 <section class="section"><div class="kicker">Student experience</div><h2>Life beyond the classroom</h2>
   <div class="grid3"><div class="feature"><div class="ic">{ic('diversity_3')}</div><h3>Clubs and societies</h3><p>Coding, robotics, drama, music, debate and more, run by students.</p></div>
