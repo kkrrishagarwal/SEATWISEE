@@ -11,16 +11,55 @@ from ui.common import BRAND, SYSTEM, conn
 
 CSS = """
 <style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
 [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"],
 header[data-testid="stHeader"], #MainMenu, footer { display:none !important; }
+.stApp, .stApp *:not([data-testid="stIconMaterial"]):not([role="img"]):not(code) { font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; }
 [data-testid="stAppViewContainer"] { background: radial-gradient(900px 500px at 85% 10%, rgba(139,92,246,.45), transparent 60%), radial-gradient(700px 400px at 10% 90%, rgba(245,179,1,.18), transparent 60%), linear-gradient(120deg, #0B1F3A 0%, #122B4F 55%, #3B1F8A 100%); }
-.block-container { padding-top: 2.5rem !important; max-width: 100% !important; }
-h1.gw-title, .gw-title { text-align:center; color:#fff !important; font-weight:900; font-size:2.2rem; letter-spacing:-.5px; margin:0; padding:0; }
-.gw-sub { text-align:center; color:rgba(255,255,255,.7); margin:4px 0 22px; }
-div[data-testid="stColumn"]:has([data-testid="stForm"]) { background:#fff; border-radius:22px; padding:26px 26px 22px; box-shadow:0 24px 60px rgba(0,0,0,.35); }
+.block-container { padding-top: 1.6rem !important; padding-bottom: 3rem !important; max-width: 100% !important; }
+
+/* brand header */
+.gw-head { display:flex; flex-direction:column; align-items:center; gap:10px; margin:6px 0 22px; text-align:center; }
+.gw-head img { width:58px; height:58px; border-radius:16px; box-shadow:0 10px 30px rgba(245,179,1,.35); }
+.gw-title { color:#fff !important; font-weight:900; font-size:2.1rem; letter-spacing:-.8px; margin:0; line-height:1.1; }
+.gw-sub { color:rgba(255,255,255,.75); margin:0; font-size:.95rem; }
+.gw-chip { display:inline-flex; gap:6px; align-items:center; padding:5px 12px; border-radius:999px; background:rgba(255,255,255,.1); border:1px solid rgba(255,255,255,.22); color:#FFE9A8; font-size:.74rem; font-weight:700; letter-spacing:1.5px; text-transform:uppercase; }
+
+/* the card */
+div[data-testid="stColumn"]:has([data-testid="stForm"]) { background:#fff; border-radius:24px; padding:30px 30px 24px; box-shadow:0 30px 80px rgba(3,7,18,.45); border-top:5px solid #6D28D9; }
 div[data-testid="stForm"] { border:none !important; padding:0 !important; }
-div[data-testid="stFormSubmitButton"] > button { background:linear-gradient(135deg,#F5B301,#FF9F1C) !important; color:#0B1F3A !important; font-weight:800 !important; border:none !important; border-radius:14px !important; }
-div[data-testid="stColumn"]:has([data-testid="stForm"]) div[data-testid="stButton"] > button { background:transparent !important; color:#0B1F3A !important; border:1.5px solid #0B1F3A !important; border-radius:14px !important; font-weight:700 !important; margin-top:8px; }
+div[data-testid="stColumn"]:has([data-testid="stForm"]) h3 { color:#0F172A !important; font-weight:900 !important; letter-spacing:-.6px; margin-bottom:0 !important; }
+div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stCaptionContainer"] p { color:#64748B !important; }
+
+/* labels */
+div[data-testid="stColumn"]:has([data-testid="stForm"]) label p { color:#1E293B !important; font-weight:700 !important; font-size:.88rem !important; }
+
+/* clearly visible input boxes (Streamlit 1.66: stTextInputRootElement / stTextAreaRootElement) */
+div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stTextInputRootElement"],
+div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stTextAreaRootElement"] {
+  background:#F8FAFC !important; border:1.5px solid #CBD5E1 !important; border-radius:12px !important; min-height:48px; transition:border-color .15s, box-shadow .15s, background .15s; }
+div[data-testid="stColumn"]:has([data-testid="stForm"]) input, div[data-testid="stColumn"]:has([data-testid="stForm"]) textarea { color:#0F172A !important; font-size:.98rem !important; padding-left:14px !important; caret-color:#6D28D9; background:transparent !important; }
+div[data-testid="stColumn"]:has([data-testid="stForm"]) input::placeholder, div[data-testid="stColumn"]:has([data-testid="stForm"]) textarea::placeholder { color:#94A3B8 !important; opacity:1; }
+div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stTextInputRootElement"]:hover, div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stTextAreaRootElement"]:hover { border-color:#A78BFA !important; }
+div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stTextInputRootElement"]:focus-within, div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stTextAreaRootElement"]:focus-within {
+  border-color:#6D28D9 !important; background:#fff !important; box-shadow:0 0 0 4px rgba(109,40,217,.15) !important; }
+div[data-testid="stColumn"]:has([data-testid="stForm"]) [data-testid="stTextInputRootElement"] button { color:#64748B !important; }
+
+/* buttons */
+div[data-testid="stFormSubmitButton"] > button { background:linear-gradient(135deg,#F5B301,#FF9F1C) !important; color:#0B1F3A !important; font-weight:800 !important; font-size:1rem !important; border:none !important; border-radius:14px !important; min-height:50px; box-shadow:0 12px 26px rgba(245,179,1,.35); transition:transform .15s; }
+div[data-testid="stFormSubmitButton"] > button:hover { transform:translateY(-1px); filter:brightness(1.04); }
+div[data-testid="stColumn"]:has([data-testid="stForm"]) div[data-testid="stButton"] > button { background:#fff !important; color:#5B21B6 !important; border:1.5px solid #C4B5FD !important; border-radius:14px !important; font-weight:700 !important; min-height:46px; margin-top:6px; }
+div[data-testid="stColumn"]:has([data-testid="stForm"]) div[data-testid="stButton"] > button:hover { background:#F5F3FF !important; border-color:#6D28D9 !important; }
+.st-key-back_home button { color:#fff !important; font-weight:700 !important; }
+.st-key-back_home button:hover { color:#FFD75E !important; }
+
+/* trust strip under the card */
+.gw-trust { display:flex; justify-content:center; gap:18px; flex-wrap:wrap; margin-top:20px; color:rgba(255,255,255,.75); font-size:.82rem; }
+.gw-trust span { display:inline-flex; align-items:center; gap:6px; }
+.gw-trust b { color:#FFD75E; }
+.gw-demo { background:#F5F3FF; border:1px dashed #C4B5FD; border-radius:12px; padding:10px 12px; color:#4C1D95; font-size:.8rem; margin-top:12px; line-height:1.5; }
+.gw-demo code { background:#EDE9FE; color:#4C1D95; padding:1px 6px; border-radius:6px; }
+@media (max-width: 760px) { div[data-testid="stColumn"]:has([data-testid="stForm"]) { padding:22px 18px 18px; } .gw-title { font-size:1.7rem; } }
 </style>
 """
 
@@ -40,14 +79,15 @@ def _set_session(user: dict) -> None:
 
 def render() -> None:
     c = conn()
-    st.markdown(CSS, unsafe_allow_html=True)
+    st.html(CSS)
     content = db.get_site_content(c)
     top_l, _, _ = st.columns([1, 2, 1])
     with top_l:
         if st.button("← Back to Home", key="back_home", type="tertiary"):
             st.session_state.update(current_page="home", show_register=False, show_forgot=False)
             st.rerun()
-    st.markdown(f"<h1 class='gw-title'>{SYSTEM} Gateway</h1><p class='gw-sub'>{content.get('institute_name', BRAND)} · {BRAND}</p>", unsafe_allow_html=True)
+    st.html(f"<div class='gw-head'><img src='app/static/images/logo.png' alt=''><span class='gw-chip'>Admissions {db.get_setting(c, 'academic_session', '')}</span>"
+            f"<h1 class='gw-title'>Welcome to {BRAND}</h1><p class='gw-sub'>{content.get('institute_name', '')} · {SYSTEM} admissions portal</p></div>")
     _, mid, _ = st.columns([1, 1.25, 1])
     with mid:
         if st.session_state.get("show_register"):
@@ -56,6 +96,7 @@ def render() -> None:
             _forgot(c)
         else:
             _login(c)
+    st.html("<div class='gw-trust'><span>🔒 <b>Encrypted</b> passwords</span><span>⚖️ <b>Fair</b>, validated seat allocation</span><span>📩 Status updates by <b>email</b></span></div>")
 
 
 def _login(c):
@@ -63,7 +104,7 @@ def _login(c):
         st.markdown("### Sign in")
         st.caption("One sign-in for students and the admissions office. Your role is detected from your account.")
         ident = st.text_input("Email address or username", key="login_ident", placeholder="you@example.com")
-        pw = st.text_input("Password", type="password", key="login_pw")
+        pw = st.text_input("Password", type="password", key="login_pw", placeholder="Enter your password")
         go = st.form_submit_button("Login", type="primary", width="stretch")
     if go:
         user = auth_service.authenticate(c, ident, pw)
@@ -72,13 +113,13 @@ def _login(c):
             st.rerun()
         st.error("Invalid credentials.")
     b1, b2 = st.columns(2)
-    if b1.button("Register as New Student", key="goto_register", width="stretch"):
+    if b1.button("Create account", key="goto_register", icon=":material/person_add:", width="stretch"):
         st.session_state["show_register"] = True
         st.rerun()
-    if b2.button("Forgot password?", key="goto_forgot", width="stretch"):
+    if b2.button("Forgot password?", key="goto_forgot", icon=":material/key:", width="stretch"):
         st.session_state["show_forgot"] = True
         st.rerun()
-    st.caption("Demo accounts: admin `admin` / `admin123` · student `applicant001@seatwisee.demo` (no password)")
+    st.html("<div class='gw-demo'><b>Demo accounts</b> · admin <code>admin</code> / <code>admin123</code> · student <code>applicant001@seatwisee.demo</code> (no password)</div>")
 
 
 def _register(c):

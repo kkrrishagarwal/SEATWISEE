@@ -148,6 +148,8 @@ div[class*="st-key-card_"] > div {{ gap:.6rem; }}
 button[kind="primary"], button[data-testid="stBaseButton-primary"] {{ background:linear-gradient(135deg,{PURPLE},{VIOLET}) !important; border:none !important; color:#fff !important; box-shadow:0 8px 18px rgba(109,40,217,.25); }}
 button[kind="primary"]:hover, button[data-testid="stBaseButton-primary"]:hover {{ filter:brightness(1.06); }}
 .stTextInput input, .stTextArea textarea, .stNumberInput input, [data-baseweb="select"] > div, [data-baseweb="input"] {{ border-radius:12px !important; }}
+[data-testid="stTextInputRootElement"], [data-testid="stTextAreaRootElement"], [data-testid="stNumberInputContainer"] {{ border:1.5px solid #CBD5E1 !important; border-radius:12px !important; background:#F8FAFC !important; }}
+[data-testid="stTextInputRootElement"]:focus-within, [data-testid="stTextAreaRootElement"]:focus-within, [data-testid="stNumberInputContainer"]:focus-within {{ border-color:{PURPLE} !important; background:#fff !important; box-shadow:0 0 0 4px rgba(109,40,217,.14) !important; }}
 [data-testid="stDataFrame"], [data-testid="stDataFrameResizable"] {{ border-radius:14px; overflow:hidden; border:1px solid var(--sw-border); }}
 [data-testid="stExpander"] details {{ border-radius:14px; border:1px solid var(--sw-border); background:#fff; }}
 [data-testid="stMetric"] {{ background:#fff; border:1px solid var(--sw-border); border-radius:14px; padding:12px 16px; box-shadow:0 4px 14px rgba(23,32,51,.04); }}
