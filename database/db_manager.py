@@ -137,10 +137,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
 
 def reset_db(conn: sqlite3.Connection) -> None:
     init_db(conn)
+    # Children before parents so foreign keys are never violated mid-reset.
     tables = [
-        "audit_log", "appeals", "capacity_changes", "assignments",
+        "audit_log", "notifications", "withdrawals", "password_resets", "appeals", "capacity_changes", "assignments",
         "allocation_runs", "preferences", "applicants", "programs", "form_schema", "site_content",
-        "notifications", "withdrawals", "password_resets", "announcements", "settings", "admin_users",
+        "announcements", "settings", "admin_users",
     ]
     for t in tables:
         conn.execute(f"DELETE FROM {t}")
@@ -229,6 +230,73 @@ def seed_demo(conn: sqlite3.Connection, n_applicants: int = 200, seed: int = 42)
             )
     conn.commit()
     log_audit(conn, "system", "seed", {"applicants": n_applicants, "programs": len(PROGRAM_CATALOG), "seed": seed})
+
+
+MICRO_PROGRAMS = [
+    # code, name, capacity, min_score, required_track, department, duration, description
+    ("AIE", "AI Engineering", 4, 70, "Engineering", "School of Computing", "4 years", "Machine learning, deep learning and MLOps. The most contested programme in the pitch dataset."),
+    ("DSC", "Data Science", 4, 60, None, "School of Computing", "2 years", "Statistics, analytics and visualisation; open to every track."),
+    ("CYB", "Cybersecurity", 3, 55, "Engineering", "School of Computing", "4 years", "Network security, cryptography and incident response."),
+    ("WEB", "Web Development", 4, 45, None, "School of Design", "1 year", "Front-end, back-end and product engineering bootcamp; open to every track."),
+]
+# 20 applicants engineered around a bottleneck: 10 rank AI Engineering first for its 4 seats, including two
+# equal scores (82) that only the application timestamp can separate and one applicant below the AIE floor.
+MICRO_APPLICANTS = [
+    # name, track, score, [preferences], minutes after base time
+    ("Aarav Sharma", "Engineering", 91, ["AIE", "DSC", "CYB"], 10),
+    ("Diya Verma", "Engineering", 88, ["AIE", "CYB", "DSC"], 25),
+    ("Kabir Gupta", "Engineering", 85, ["AIE", "DSC", "WEB"], 40),
+    ("Ananya Agarwal", "Engineering", 82, ["AIE", "DSC", "CYB"], 55),      # tie on 82: earlier application
+    ("Rohan Singh", "Engineering", 82, ["AIE", "CYB", "WEB"], 180),       # tie on 82: later application
+    ("Ishita Patel", "Engineering", 79, ["AIE", "DSC", "WEB"], 70),
+    ("Vivaan Reddy", "Engineering", 76, ["AIE", "CYB", "WEB"], 95),
+    ("Myra Nair", "Engineering", 73, ["AIE", "WEB", "DSC"], 120),
+    ("Arjun Iyer", "Engineering", 71, ["AIE", "CYB", "WEB"], 140),
+    ("Sara Das", "Engineering", 66, ["AIE", "DSC", "WEB"], 150),          # below the AIE floor of 70
+    ("Reyansh Khan", "Science", 84, ["DSC", "WEB"], 30),
+    ("Anika Mehta", "Science", 77, ["DSC", "WEB"], 60),
+    ("Advait Joshi", "Commerce", 74, ["DSC", "WEB"], 80),
+    ("Navya Chopra", "Arts", 69, ["DSC", "WEB"], 100),
+    ("Dhruv Bose", "Engineering", 68, ["CYB", "DSC", "WEB"], 110),
+    ("Kiara Rao", "Engineering", 64, ["CYB", "WEB", "DSC"], 130),
+    ("Yash Mishra", "Engineering", 58, ["CYB", "WEB"], 160),
+    ("Pari Kulkarni", "Commerce", 56, ["WEB", "DSC"], 170),
+    ("Aditya Pillai", "Arts", 52, ["WEB", "DSC"], 190),
+    ("Saanvi Yadav", "Science", 48, ["WEB", "DSC"], 200),
+]
+
+
+def seed_micro_pitch_demo(conn: sqlite3.Connection) -> None:
+    """Replace all data with the 3-minute pitch dataset: 4 programmes (15 seats) and 20 applicants with a
+    deliberate bottleneck on AI Engineering. Deterministic, no randomness, so every run is identical on stage."""
+    reset_db(conn)
+    cur = conn.cursor()
+    for code, name, cap, min_score, track, dept, dur, desc in MICRO_PROGRAMS:
+        cur.execute(
+            "INSERT INTO programs (code, name, capacity, min_score, required_track, department, duration, description, image_key) VALUES (?,?,?,?,?,?,?,?,?)",
+            (code, name, cap, min_score, track, dept, dur, desc, code.lower()),
+        )
+    pid = {row["code"]: row["id"] for row in cur.execute("SELECT id, code FROM programs")}
+    seed_form_schema(conn)
+    base_time = datetime(2026, 10, 1, 9, 0, 0)
+    for i, (name, track, score, prefs, minutes) in enumerate(MICRO_APPLICANTS, start=1):
+        email = f"pitch{i:02d}@seatwisee.demo"
+        form_data = {"category": "General", "city": "Ghaziabad", "phone": f"98{i:08d}", "gap_years": 0}
+        applied_at = (base_time + timedelta(minutes=minutes)).strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute(
+            "INSERT INTO applicants (name, email, score, track, form_data, applied_at, application_status, phone, address, eligibility_status) "
+            "VALUES (?,?,?,?,?,?,'applied',?,?,'pending')",
+            (name, email, score, track, json.dumps(form_data), applied_at, form_data["phone"], form_data["city"]),
+        )
+        aid = cur.lastrowid
+        cur.execute("UPDATE applicants SET marksheet_path = ?, scorecard_path = ? WHERE id = ?",
+                    (document_path(aid, "marksheet", "pdf"), document_path(aid, "scorecard", "pdf"), aid))
+        for rank, code in enumerate(prefs, start=1):
+            cur.execute("INSERT INTO preferences (applicant_id, program_id, rank) VALUES (?,?,?)", (aid, pid[code], rank))
+    conn.commit()
+    set_setting(conn, "demo_mode", "1")
+    log_audit(conn, "system", "seed_micro_pitch", {"applicants": len(MICRO_APPLICANTS), "programs": len(MICRO_PROGRAMS),
+                                                    "seats": sum(p[2] for p in MICRO_PROGRAMS)})
 
 
 # --------------------------------------------------------------------------- settings & policies

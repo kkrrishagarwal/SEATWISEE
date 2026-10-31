@@ -106,8 +106,104 @@ def _publish_feedback(out):
             st.dataframe(pd.DataFrame(out.validation.as_rows()), hide_index=True, width="stretch")
 
 
-# ====================================================================== 1 Overview
+def _ordinal(n) -> str:
+    n = int(n); suf = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suf} Choice"
+
+
+def allocated_roster(c) -> pd.DataFrame:
+    """Applicants joined with the current allocation version: everyone who holds a seat right now."""
+    run = db.get_current_run(c)
+    if run is None:
+        return pd.DataFrame(columns=["Application ID", "Full Name", "Email", "Assigned Program", "Preference Achieved", "Status"])
+    df = pd.read_sql_query("""SELECT ap.id, ap.name, ap.email, p.code || ' — ' || p.name AS program, a.rank_obtained, ap.offer_status
+                              FROM assignments a JOIN applicants ap ON ap.id = a.applicant_id JOIN programs p ON p.id = a.program_id
+                              WHERE a.run_id = ? AND a.program_id IS NOT NULL ORDER BY p.code, a.rank_obtained, ap.score DESC""", c, params=(run["id"],))
+    return pd.DataFrame({"Application ID": df.id.map(db.app_id), "Full Name": df.name, "Email": df.email, "Assigned Program": df.program,
+                         "Preference Achieved": df.rank_obtained.map(_ordinal), "Status": df.offer_status.map({"confirmed": "Confirmed", "provisional": "Provisional"}).fillna("Selected")})
+
+
+def roster_block(c, key: str) -> None:
+    roster = allocated_roster(c)
+    st.html(f"<div class='sw-card-title'>Allocated Students <span class='sw-pill ok'>{len(roster)} seated</span></div>")
+    if roster.empty:
+        st.info("No allocation published yet."); return
+    st.download_button("⬇ Export allocated_candidates.csv", roster.to_csv(index=False).encode(), "allocated_candidates.csv", "text/csv",
+                       key=f"roster_csv_{key}", type="primary", width="stretch")
+    st.dataframe(roster, hide_index=True, width="stretch", height=min(420, 40 + 35 * len(roster)))
+
+
+def _pitch_demand(c, programs):
+    """First-choice demand versus capacity for every programme (the bottleneck the judges should see)."""
+    prefs = db.load_preferences(c)
+    active = set(pd.read_sql_query("SELECT id FROM applicants WHERE status='active' AND application_status='applied'", c).id)
+    first = prefs[(prefs["rank"] == 1) & prefs.applicant_id.isin(active)].groupby("program_id").size()
+    return pd.DataFrame([{"Program": f"{r.code}", "Name": r.name, "First-choice demand": int(first.get(int(r.id), 0)), "Seats": int(r.capacity)} for r in programs.itertuples()])
+
+
+# ====================================================================== 1 Overview — Pitch Flow
 def sec_overview(c):
+    programs = db.load_programs(c)
+    n_students = c.execute("SELECT COUNT(*) FROM applicants WHERE status='active' AND application_status='applied'").fetchone()[0]
+    seats = int(programs.capacity.sum()) if len(programs) else 0
+    run = db.get_current_run(c)
+    demand = _pitch_demand(c, programs)
+    hot = demand.sort_values("First-choice demand", ascending=False).iloc[0] if len(demand) else None
+    # ---------------- Step 1 · The Input
+    ds.section("Step 1 · The Input", "The bottleneck the engine has to resolve")
+    ds.kpis([("Students competing", n_students, "v"), ("Total seats", seats, ""), ("Programmes", len(programs), "b"),
+             ("Most contested", f"{hot['Program']}: {hot['First-choice demand']} want {hot['Seats']} seats" if hot is not None else "—", "a")])
+    if hot is not None:
+        st.markdown(f"**{n_students} students competing for {seats} seats.** {hot['First-choice demand']} of them rank **{hot['Name']}** first, which has only **{hot['Seats']}** seats.")
+        fig = go.Figure(); fig.add_bar(name="First-choice demand", x=demand.Program, y=demand["First-choice demand"], marker_color="#6D28D9"); fig.add_bar(name="Seats", x=demand.Program, y=demand.Seats, marker_color="#F5B301")
+        fig.update_layout(barmode="group", title="First-choice demand vs seats"); st.plotly_chart(ds.plotly_style(fig, 300), width="stretch", key="pf_demand")
+    # ---------------- Step 2 · The Engine
+    ds.section("Step 2 · The Engine", "CP-SAT solves the whole allocation in one shot, then the independent validator checks it")
+    b1, b2 = st.columns([2, 1])
+    if b1.button("▶ Run Optimization (Mode A)", type="primary", key="pf_run", width="stretch"):
+        with st.spinner("Verifying eligibility and allocating…"):
+            aps.verify_all_eligibility(c); st.session_state["al_out"] = re_.run_initial(c, time_limit_s=20); st.session_state.pop("rc_out", None)
+        st.rerun()
+    b2.caption("Mode A = initial allocation under the policy in Settings (preference-first by default). Re-running publishes a new version.")
+    # ---------------- Step 3 · The Output
+    ds.section("Step 3 · The Output", "Who got which choice, and the full roster")
+    out = st.session_state.get("al_out")
+    if out is not None and out.run_id and run and out.run_id == run["id"]:
+        status_badge(out.solve.status, out.solve.explanation)
+        if out.validation is not None: (st.success if out.validation.ok else st.error)(("Independent validation: PASS — " + ", ".join(out.validation.checks_run)) if out.validation.ok else f"Validation failed: {len(out.validation.violations)} violation(s)")
+    if run:
+        ts = re_.technical_summary(c)
+        o1, o2 = st.columns([1.1, 1], gap="medium")
+        with o1:
+            st.plotly_chart(ds.plotly_style(rank_chart(type("R", (), {"rank_histogram": ts["rank_histogram"]})()), 320), width="stretch", key="pf_rank")
+            ds.facts([("Seated", ts.get("seated", run["assigned_count"])), ("Waitlisted", max(0, n_students - int(ts.get("seated", run["assigned_count"])))), ("First choice", f"{100 * ts['first_choice_rate']:.0f}%" if "first_choice_rate" in ts else "—"), ("Version", f"#{run['id']}")])
+        with o2:
+            roster_block(c, "pf")
+    else:
+        st.info("Run the optimisation to see the result.")
+    # ---------------- Step 4 · The Shock
+    ds.section("Step 4 · The Shock", "A programme loses seats; the engine reallocates with minimal disruption")
+    if run and len(programs):
+        s1, s2 = st.columns([1, 2])
+        sel = s1.selectbox("Programme", programs.code.tolist(), key="pf_prog", format_func=lambda code: f"{code} — {programs.set_index('code').loc[code, 'name']}")
+        row = programs[programs.code == sel].iloc[0]; cap = int(row.capacity)
+        newcap = s2.slider("Simulate capacity drop → new number of seats", 0, max(cap, 1), max(0, cap - max(1, cap // 2)), key=f"pf_cap_{sel}")
+        st.caption(f"{sel} currently has {cap} seats; the slider sets the new capacity ({cap - newcap} seat(s) removed).")
+        if st.button("⚡ Run Reallocation (Mode B)", type="primary", key="pf_realloc", width="stretch", disabled=newcap == cap):
+            with st.spinner("Re-optimising with the displacement penalty…"):
+                st.session_state["rc_out"] = re_.change_capacity(c, int(row.id), int(newcap), f"Pitch simulation: capacity drop {cap}→{newcap}")
+            st.rerun()
+        rc = st.session_state.get("rc_out")
+        if rc is not None:
+            st.markdown("**Ripple effect of the capacity drop**"); _publish_feedback(rc)
+            roster_block(c, "pf2")
+    else:
+        st.caption("Available after the first allocation.")
+    with st.expander("Advanced Settings"):
+        _overview_advanced(c)
+
+
+def _overview_advanced(c):
     total = c.execute("SELECT COUNT(*) FROM applicants").fetchone()[0]
     applied = c.execute("SELECT COUNT(*) FROM applicants WHERE application_status='applied'").fetchone()[0]
     programs = db.load_programs(c)
@@ -274,6 +370,8 @@ def sec_selected(c):
                                 WHERE pr.program_id=? AND a.offer_status='waitlisted' AND a.status='active'""", (int(r.id),)).fetchone()[0]}
                             for _, r in programs.iterrows()])
     ds.kpis([("Allocated", int(summary.Allocated.sum()), ""), ("Confirmed", int(summary.Confirmed.sum()), "g"), ("Vacant", int(summary.Vacant.sum()), "a"), ("Version", f"#{run['id']}", "v")])
+    with ds.card():
+        roster_block(c, "sc")
     with ds.card("Program summary", icon="cap"):
         st.dataframe(summary, hide_index=True, width="stretch")
     ds.section("Candidates by program")
@@ -575,6 +673,11 @@ def sec_settings(c):
     with t_danger, ds.card("Danger zone", icon="alert"):
         st.error("Resetting replaces every applicant, program, allocation version, appeal, notification and audit entry with the 200-applicant demonstration seed. This cannot be undone.")
         sure = st.checkbox("I understand that all current records will be lost", key="reset_sure")
+        st.html("<div class='sw-card-title' style='margin-top:8px'>🎤 Pitch mode</div><p class='sw-card-sub'>4 programmes · 15 seats · 20 applicants · 10 of them want AI Engineering first. Deterministic, so the demo looks the same every time.</p>")
+        if st.button("🎤 RESET DB TO 3-MINUTE PITCH DATA", key="reset_pitch", type="primary", width="stretch", disabled=not sure):
+            db.seed_micro_pitch_demo(c)
+            for k in ("al_out", "rw_out", "rc_out", "ap_cf"): st.session_state.pop(k, None)
+            st.session_state["admin_nav"] = SECTIONS[0]; st.rerun()
         if st.button("Reset database to demonstration seed (200 applicants)", key="reset_db", disabled=not sure):
             db.reset_db(c); db.seed_demo(c)
             for k in ("al_out", "rw_out", "rc_out", "ap_cf"): st.session_state.pop(k, None)
