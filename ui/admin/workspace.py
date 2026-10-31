@@ -727,7 +727,9 @@ def sec_data_upload(c):
         progs = db.load_programs(c)[["code", "name", "capacity", "min_score", "required_track"]].rename(columns={"code": "Code", "name": "Programme", "capacity": "Seats", "min_score": "Min score", "required_track": "Track"})
         progs["Track"] = progs["Track"].fillna("Any"); st.dataframe(progs, hide_index=True, width="stretch")
     with r, ds.card("2 · Upload and validate", "Nothing is written until you confirm the import", icon="file"):
-        up = st.file_uploader("Applicants CSV", type=["csv"], key="csv_upload")
+        if st.session_state.get("csv_done"):
+            st.success(st.session_state["csv_done"])
+        up = st.file_uploader("Applicants CSV", type=["csv"], key=f"csv_upload_{st.session_state.get('csv_gen', 0)}")
         if up is None:
             st.caption("Upload a .csv file to see a validation preview."); return
         try:
@@ -736,6 +738,9 @@ def sec_data_upload(c):
         except Exception as e:
             st.error(f"Could not read this CSV: {e}"); return
         ok, bad = len(valid), int((report.Result != "OK").sum())
+        report = report[["Line", "Result", "Full Name", "Email", "Preferences"]]
+        if bad and (report.Result == "email already registered").all():
+            st.warning("Every row is already in the database: this file has been imported before. Nothing new to import.")
         ds.facts([("Rows in file", len(report)), ("Valid", ok), ("With errors", bad)])
         st.dataframe(report.style.apply(lambda row: ["background-color:#FEE2E2" if row.Result != "OK" else ""] * len(row), axis=1), hide_index=True, width="stretch", height=min(380, 40 + 35 * len(report)))
         if bad:
@@ -751,9 +756,10 @@ def sec_data_upload(c):
                         sent[ns.notify(c, aid, "account_registered", dedupe="welcome").get("email", "skipped")] += 1
                 if db.get_setting(c, "demo_mode") == "1" and not c.execute("SELECT COUNT(*) FROM applicants WHERE email LIKE '%@seatwisee.demo'").fetchone()[0]:
                     db.set_setting(c, "demo_mode", "0")
-            st.success(f"Imported {len(ids)} applicant(s). Eligibility: {counts.get('eligible', 0)} eligible, {counts.get('ineligible', 0)} ineligible."
-                       + (" Emails: " + ", ".join(f"{_status_label(k)} {v}" for k, v in sent.items()) if email_them else ""))
-            st.toast(f"{len(ids)} applicants imported", icon="✅")
+            st.session_state["csv_done"] = (f"Imported {len(ids)} applicant(s) from {up.name}. Eligibility: {counts.get('eligible', 0)} eligible, {counts.get('ineligible', 0)} ineligible."
+                                            + (" Emails: " + ", ".join(f"{_status_label(k)} {v}" for k, v in sent.items()) if email_them else ""))
+            st.session_state["csv_gen"] = st.session_state.get("csv_gen", 0) + 1   # fresh uploader: the imported file is not re-validated
+            st.toast(f"{len(ids)} applicants imported", icon="✅"); st.rerun()
 
 
 def render(c) -> None:
