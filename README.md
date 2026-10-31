@@ -57,3 +57,16 @@ until you drop a file into `static/images/photos/` named after the slot (jpg, jp
 | `program_<code>.jpg` (e.g. `program_cse.jpg`) | Programme cards and programme detail pages |
 
 No page code changes are needed. To use a different file name for a slot, add it to `OVERRIDES` in `ui/public/images.py`.
+
+## Real data: importing applicants from CSV
+
+A fresh database starts with the programme catalogue and **zero applicants** (set `SEATWISEE_SEED_DEMO=1` to get the 200-applicant demo instead).
+
+1. Admin → Student & Program Data → **Data Upload** → download the **Sample CSV Template**.
+2. Fill one row per applicant: `Full Name, Email, Phone, Address, Score (0-100), Track (Engineering|Science|Commerce|Arts), Preference 1..N` (programme codes or names, in order).
+3. Upload it: every row is validated and shown in a preview; nothing is written until you click **Import**. Invalid rows can be downloaded as an error report.
+4. Imported accounts get a random password; applicants set their own with **Forgot password** on the login page (the optional welcome email tells them so).
+
+To remove synthetic demo applicants from an existing database: Settings → Danger zone → **Clear all applicants**.
+
+Email uses `SMTP_HOST`, `SMTP_PORT` (587 STARTTLS), `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` from `.env`. Missing or rejected credentials never crash the app; the delivery log shows *Failed - Missing Credentials* or *Failed - Invalid Credentials*. Use Settings → Integrations → **Send Test** to check them.

@@ -1048,12 +1048,141 @@ def load_capacity_changes(conn: sqlite3.Connection) -> pd.DataFrame:
     )
 
 
+def seed_programs_only(conn: sqlite3.Connection) -> None:
+    """Programme catalogue and default application form, with zero applicants (real-data mode)."""
+    init_db(conn)
+    cur = conn.cursor()
+    for code, name, cap, min_score, track in PROGRAM_CATALOG:
+        dept, dur, desc = PROGRAM_DETAILS.get(code, ("", "", ""))
+        cur.execute(
+            "INSERT OR IGNORE INTO programs (code, name, capacity, min_score, required_track, department, duration, description, image_key) VALUES (?,?,?,?,?,?,?,?,?)",
+            (code, name, cap, min_score, track, dept, dur, desc, code.lower()),
+        )
+    conn.commit()
+    seed_form_schema(conn)
+    set_setting(conn, "demo_mode", "0", actor="system")
+    log_audit(conn, "system", "seed_programs_only", {"programs": len(PROGRAM_CATALOG)})
+
+
 def ensure_seeded(db_path: str = DEFAULT_DB_PATH) -> sqlite3.Connection:
+    """First start: programmes only, no applicants. Set SEATWISEE_SEED_DEMO=1 to get the 200-applicant demo instead."""
     conn = get_conn(db_path)
     init_db(conn)
     if not is_seeded(conn):
-        seed_demo(conn)
+        if os.environ.get("SEATWISEE_SEED_DEMO") == "1":
+            seed_demo(conn)
+        else:
+            seed_programs_only(conn)
     return conn
+
+
+def clear_applicant_data(conn: sqlite3.Connection) -> int:
+    """Remove every applicant and everything derived from applicants (allocations, appeals, notifications...).
+    Programmes, settings, website content, form fields and admin accounts are kept."""
+    n = conn.execute("SELECT COUNT(*) FROM applicants").fetchone()[0]
+    for t in ("notifications", "withdrawals", "password_resets", "appeals", "capacity_changes", "assignments",
+              "allocation_runs", "preferences", "applicants"):
+        conn.execute(f"DELETE FROM {t}")
+    conn.commit()
+    set_setting(conn, "demo_mode", "0")
+    log_audit(conn, "admin", "applicant_data_cleared", {"applicants_removed": n})
+    return n
+
+
+# --------------------------------------------------------------------------- CSV import
+CSV_BASE_COLUMNS = ["Full Name", "Email", "Phone", "Address", "Score", "Track"]
+
+
+def csv_template(conn: sqlite3.Connection) -> pd.DataFrame:
+    """Two example rows using real programme codes; the admin replaces them with real applicants."""
+    n = int(get_setting(conn, "max_preferences", "5") or 5)
+    codes = [r["code"] for r in conn.execute("SELECT code FROM programs WHERE COALESCE(is_open,1)=1 ORDER BY id")]
+    pref_cols = [f"Preference {i}" for i in range(1, n + 1)]
+    rows = []
+    for k, (name, email, phone, addr, score, track) in enumerate([
+            ("Priya Sharma", "priya.sharma@example.com", "9876543210", "Ghaziabad, UP", 82, "Engineering"),
+            ("Rahul Verma", "rahul.verma@example.com", "9123456780", "Noida, UP", 67, "Commerce")]):
+        prefs = (codes[k:] + codes[:k])[:min(3, n)] if codes else []
+        rows.append({"Full Name": name, "Email": email, "Phone": phone, "Address": addr, "Score": score, "Track": track,
+                     **{c: (prefs[i] if i < len(prefs) else "") for i, c in enumerate(pref_cols)}})
+    return pd.DataFrame(rows, columns=CSV_BASE_COLUMNS + pref_cols)
+
+
+def parse_applicants_csv(conn: sqlite3.Connection, df: pd.DataFrame) -> Tuple[List[dict], pd.DataFrame]:
+    """Validate an uploaded applicants CSV. Returns (valid_rows, report) where report has one line per input row.
+    Preferences may be programme codes or full programme names (case-insensitive)."""
+    df = df.rename(columns=lambda c: str(c).strip())
+    missing = [c for c in ("Full Name", "Email", "Score", "Track") if c not in df.columns]
+    pref_cols = sorted([c for c in df.columns if c.lower().startswith("preference")],
+                       key=lambda c: int("".join(ch for ch in c if ch.isdigit()) or 0))
+    if missing or not pref_cols:
+        problems = ([f"missing column(s): {', '.join(missing)}"] if missing else []) + ([] if pref_cols else ["at least one 'Preference 1' column is required"])
+        raise ValueError("; ".join(problems))
+    programs = {r["code"].upper(): r["id"] for r in conn.execute("SELECT id, code FROM programs")}
+    by_name = {r["name"].strip().lower(): r["id"] for r in conn.execute("SELECT id, name FROM programs")}
+    code_of = {v: k for k, v in programs.items()}
+    max_prefs = int(get_setting(conn, "max_preferences", "5") or 5)
+    existing = {r[0].lower() for r in conn.execute("SELECT email FROM applicants")}
+    seen: set = set()
+    valid, report = [], []
+    for i, r in df.iterrows():
+        line = i + 2  # header is line 1
+        def cell(col):
+            v = r.get(col, "")
+            return "" if v is None or (isinstance(v, float) and pd.isna(v)) else str(v).strip()
+        name, email, phone, addr, track = cell("Full Name"), cell("Email").lower(), cell("Phone"), cell("Address"), cell("Track").title()
+        errs = []
+        if not name: errs.append("name missing")
+        if "@" not in email or "." not in email.split("@")[-1]: errs.append("invalid email")
+        elif email in existing: errs.append("email already registered")
+        elif email in seen: errs.append("duplicate email in file")
+        try:
+            score = float(cell("Score")); assert 0 <= score <= 100
+        except Exception:
+            score = None; errs.append("score must be a number 0-100")
+        if track not in TRACKS: errs.append(f"track must be one of {', '.join(TRACKS)}")
+        prefs, bad = [], []
+        for c in pref_cols:
+            v = cell(c)
+            if not v: continue
+            pid = programs.get(v.upper()) or by_name.get(v.lower())
+            if pid is None: bad.append(v)
+            elif pid not in prefs: prefs.append(pid)
+        if bad: errs.append("unknown programme(s): " + ", ".join(bad))
+        if not prefs: errs.append("no valid preference")
+        if len(prefs) > max_prefs: errs.append(f"more than {max_prefs} preferences")
+        digits = "".join(ch for ch in phone if ch.isdigit())
+        if phone and len(digits) < 10: errs.append("phone must have at least 10 digits")
+        report.append({"Line": line, "Full Name": name, "Email": email, "Preferences": " › ".join(code_of[p] for p in prefs),
+                       "Result": "OK" if not errs else "; ".join(errs)})
+        if not errs:
+            seen.add(email)
+            valid.append({"name": name, "email": email, "phone": phone, "address": addr, "score": int(round(score)), "track": track, "prefs": prefs})
+    return valid, pd.DataFrame(report)
+
+
+def import_applicants(conn: sqlite3.Connection, rows: List[dict]) -> List[int]:
+    """Create one account + submitted application per validated row (single transaction).
+    Imported accounts get an unguessable random password; applicants set their own via 'Forgot password'."""
+    import secrets
+    ids = []
+    cur = conn.cursor()
+    try:
+        for r in rows:
+            cur.execute(
+                "INSERT INTO applicants (name, email, score, track, form_data, applied_at, application_status, password_hash, phone, address, eligibility_status) "
+                "VALUES (?,?,?,?,?,datetime('now'),'applied',?,?,?,'pending')",
+                (r["name"], r["email"], r["score"], r["track"], json.dumps({"source": "csv_import"}), hash_password(secrets.token_urlsafe(24)), r["phone"], r["address"]),
+            )
+            aid = cur.lastrowid
+            for rank, pid in enumerate(r["prefs"], start=1):
+                cur.execute("INSERT INTO preferences (applicant_id, program_id, rank) VALUES (?,?,?)", (aid, int(pid), rank))
+            ids.append(aid)
+        conn.commit()
+    except Exception:
+        conn.rollback(); raise
+    log_audit(conn, "admin", "applicants_imported_csv", {"count": len(ids)})
+    return ids
 
 
 if __name__ == "__main__":  # python -m database.db_manager  -> (re)seed

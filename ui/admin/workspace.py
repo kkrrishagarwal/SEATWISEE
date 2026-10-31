@@ -48,7 +48,7 @@ def status_badge(*a, **k): return _cm.status_badge(*a, **k)
 SECTIONS = [":material/dashboard: Overview", ":material/school: Program Management", ":material/inbox: All Applications", ":material/verified: Selected Candidates",
             ":material/tune: Allocation Management", ":material/sync_alt: Reallocation Management", ":material/balance: Appeals", ":material/monitoring: Analytics",
             ":material/notifications: Notifications", ":material/campaign: Announcements", ":material/history: Audit History", ":material/settings: Settings",
-            ":material/logout: Withdrawals"]
+            ":material/logout: Withdrawals", ":material/upload_file: Data Upload"]
 LOGO = "app/static/images/logo.png"
 
 
@@ -57,7 +57,7 @@ def _plain(nav: str) -> str:
 # Sidebar groups (4 expanders) — every entry must be a member of SECTIONS.
 NAV_GROUPS = [
     ("🧭 Command Center", [SECTIONS[0], SECTIONS[4], SECTIONS[5], SECTIONS[7]]),
-    ("🗂 Student & Program Data", [SECTIONS[1], SECTIONS[2], SECTIONS[3]]),
+    ("🗂 Student & Program Data", [SECTIONS[13], SECTIONS[1], SECTIONS[2], SECTIONS[3]]),
     ("⚖️ Appeals & Exceptions", [SECTIONS[6], SECTIONS[12]]),
     ("🛠 Settings & Logs", [SECTIONS[11], SECTIONS[8], SECTIONS[9], SECTIONS[10]]),
 ]
@@ -84,6 +84,16 @@ def render_sidebar_nav() -> str:
         with st.expander(title, expanded=current in options):
             st.radio(title, options, index=None, key=gk, on_change=_nav_changed, args=(gk,), label_visibility="collapsed")
     return current
+
+STATUS_LABELS = {"sent": "Sent", "failed": "Failed", "not_configured": "Failed - Missing Credentials", "skipped": "Skipped - no address", "duplicate": "Skipped - duplicate"}
+
+
+def _status_label(status: str, detail: str = "") -> str:
+    label = STATUS_LABELS.get(status, status)
+    if status == "failed" and "authentication" in (detail or "").lower():
+        label = "Failed - Invalid Credentials"
+    return label
+
 
 def goto(section: str) -> None:
     st.session_state["admin_nav"] = section
@@ -567,7 +577,8 @@ def sec_notifications(c):
         go = st.form_submit_button("Send test")
     if go:
         for ch, res in ns.send_test(c, to_e, to_p).items():
-            (st.success if res.startswith("sent") else st.error)(f"{ch}: {res}")
+            status_, _, detail_ = res.partition(": ")
+            (st.success if status_ == "sent" else st.error)(f"{ch}: {_status_label(status_, detail_)} — {detail_}")
     df = df_all
     ds.section("Delivery log", "Every attempt with the provider's real response")
     f1, f2, f3 = st.columns(3); ch = f1.multiselect("Channel", ["in_app", "email", "whatsapp"], key="nt_ch"); stt = f2.multiselect("Status", ["sent", "failed", "not_configured", "skipped"], key="nt_st")
@@ -575,6 +586,7 @@ def sec_notifications(c):
     if ch: df = df[df.channel.isin(ch)]
     if stt: df = df[df.status.isin(stt)]
     if ev: df = df[df.event.isin(ev)]
+    df = df.copy(); df.insert(df.columns.get_loc("status") + 1, "result", [_status_label(s_, d_) for s_, d_ in zip(df.status, df.provider_response.fillna(""))])
     st.dataframe(df, hide_index=True, width="stretch", height=380)
     st.caption("Statuses reflect the provider's real response. 'not_configured' means no credentials were present; nothing was sent.")
 
@@ -670,9 +682,23 @@ def sec_settings(c):
                 if st.button("Remove", key="rm_btn"): db.remove_form_field(c, rm); st.rerun()
     with t_int, ds.card("Integration status", "Live view of the email and WhatsApp configuration", icon="mail"):
         st.json(ns.integration_status())
+        st.caption("Email reads SMTP_HOST, SMTP_PORT (587 = STARTTLS), SMTP_USER, SMTP_PASSWORD and optional SMTP_FROM from the .env file.")
+        with st.form("set_test_email"):
+            to = st.text_input("Send a test email to", placeholder="you@example.com")
+            go_ = st.form_submit_button("Send Test", type="primary")
+        if go_:
+            if "@" not in (to or ""): st.error("Enter a valid email address.")
+            else:
+                res = ns.send_test(c, to, "").get("email", "failed: no result")
+                status_, _, detail_ = res.partition(": ")
+                (st.success if status_ == "sent" else st.error)(f"{_status_label(status_, detail_)} — {detail_}")
     with t_danger, ds.card("Danger zone", icon="alert"):
         st.error("Resetting replaces every applicant, program, allocation version, appeal, notification and audit entry with the 200-applicant demonstration seed. This cannot be undone.")
         sure = st.checkbox("I understand that all current records will be lost", key="reset_sure")
+        if st.button("Clear all applicants (keep programmes, settings and website content)", key="clear_applicants", width="stretch", disabled=not sure):
+            n = db.clear_applicant_data(c)
+            for k in ("al_out", "rw_out", "rc_out", "ap_cf"): st.session_state.pop(k, None)
+            st.success(f"Removed {n} applicant record(s). Import real applicants under Data Upload."); st.rerun()
         st.html("<div class='sw-card-title' style='margin-top:8px'>🎤 Pitch mode</div><p class='sw-card-sub'>4 programmes · 15 seats · 20 applicants · 10 of them want AI Engineering first. Deterministic, so the demo looks the same every time.</p>")
         if st.button("🎤 RESET DB TO 3-MINUTE PITCH DATA", key="reset_pitch", type="primary", width="stretch", disabled=not sure):
             db.seed_micro_pitch_demo(c)
@@ -682,6 +708,52 @@ def sec_settings(c):
             db.reset_db(c); db.seed_demo(c)
             for k in ("al_out", "rw_out", "rc_out", "ap_cf"): st.session_state.pop(k, None)
             st.rerun()
+
+
+# ====================================================================== Data Upload (CSV ingestion)
+def sec_data_upload(c):
+    n_app = c.execute("SELECT COUNT(*) FROM applicants").fetchone()[0]
+    n_prog = c.execute("SELECT COUNT(*) FROM programs").fetchone()[0]
+    ds.kpis([("Applicants in database", n_app, "v"), ("Programmes", n_prog, "b"), ("Max preferences", db.get_setting(c, "max_preferences", "5"), ""),
+             ("Email delivery", "configured" if ns.integration_status()["email"]["configured"] else "not configured", "g" if ns.integration_status()["email"]["configured"] else "a")])
+    if db.get_setting(c, "demo_mode") == "1" and n_app:
+        st.warning("The database still holds synthetic demonstration applicants. Clear them under Settings → Danger zone before importing real data.")
+    l, r = st.columns([1, 1.4], gap="medium")
+    with l, ds.card("1 · Download the template", "Fill one row per applicant", icon="file"):
+        tpl = db.csv_template(c)
+        st.download_button("⬇ Sample CSV Template", tpl.to_csv(index=False).encode(), "seatwisee_applicants_template.csv", "text/csv", key="csv_tpl", type="primary", width="stretch")
+        st.markdown("**Required:** Full Name, Email, Score (0-100), Track, Preference 1.  \n**Optional:** Phone, Address, Preference 2 onwards.  \n"
+                    f"**Track** is one of {', '.join(db.TRACKS)}. **Preferences** are programme codes or full names, in order.")
+        progs = db.load_programs(c)[["code", "name", "capacity", "min_score", "required_track"]].rename(columns={"code": "Code", "name": "Programme", "capacity": "Seats", "min_score": "Min score", "required_track": "Track"})
+        progs["Track"] = progs["Track"].fillna("Any"); st.dataframe(progs, hide_index=True, width="stretch")
+    with r, ds.card("2 · Upload and validate", "Nothing is written until you confirm the import", icon="file"):
+        up = st.file_uploader("Applicants CSV", type=["csv"], key="csv_upload")
+        if up is None:
+            st.caption("Upload a .csv file to see a validation preview."); return
+        try:
+            raw = pd.read_csv(up, dtype=str, keep_default_na=False)
+            valid, report = db.parse_applicants_csv(c, raw)
+        except Exception as e:
+            st.error(f"Could not read this CSV: {e}"); return
+        ok, bad = len(valid), int((report.Result != "OK").sum())
+        ds.facts([("Rows in file", len(report)), ("Valid", ok), ("With errors", bad)])
+        st.dataframe(report.style.apply(lambda row: ["background-color:#FEE2E2" if row.Result != "OK" else ""] * len(row), axis=1), hide_index=True, width="stretch", height=min(380, 40 + 35 * len(report)))
+        if bad:
+            st.download_button("⬇ Error report CSV", report[report.Result != "OK"].to_csv(index=False).encode(), "import_errors.csv", "text/csv", key="csv_err")
+        email_them = st.checkbox("Email each imported applicant a welcome message (tells them to set a password with 'Forgot password')", value=True, key="csv_email")
+        if st.button(f"Import {ok} valid applicant(s)", type="primary", key="csv_import", width="stretch", disabled=ok == 0):
+            with st.spinner("Creating accounts and applications…"):
+                ids = db.import_applicants(c, valid)
+                counts = aps.verify_all_eligibility(c)
+                sent = Counter()
+                if email_them:
+                    for aid in ids:
+                        sent[ns.notify(c, aid, "account_registered", dedupe="welcome").get("email", "skipped")] += 1
+                if db.get_setting(c, "demo_mode") == "1" and not c.execute("SELECT COUNT(*) FROM applicants WHERE email LIKE '%@seatwisee.demo'").fetchone()[0]:
+                    db.set_setting(c, "demo_mode", "0")
+            st.success(f"Imported {len(ids)} applicant(s). Eligibility: {counts.get('eligible', 0)} eligible, {counts.get('ineligible', 0)} ineligible."
+                       + (" Emails: " + ", ".join(f"{_status_label(k)} {v}" for k, v in sent.items()) if email_them else ""))
+            st.toast(f"{len(ids)} applicants imported", icon="✅")
 
 
 def render(c) -> None:
@@ -708,4 +780,4 @@ def render(c) -> None:
             col.button(label, key=f"qa_{target}", on_click=goto, args=(target,), width="stretch")
     {SECTIONS[0]: sec_overview, SECTIONS[1]: sec_programs, SECTIONS[2]: sec_applications, SECTIONS[3]: sec_selected, SECTIONS[4]: sec_allocation,
      SECTIONS[5]: sec_reallocation, SECTIONS[6]: sec_appeals, SECTIONS[7]: sec_analytics, SECTIONS[8]: sec_notifications, SECTIONS[9]: sec_announcements,
-     SECTIONS[10]: sec_audit, SECTIONS[11]: sec_settings, SECTIONS[12]: sec_withdrawals}[section](c)
+     SECTIONS[10]: sec_audit, SECTIONS[11]: sec_settings, SECTIONS[12]: sec_withdrawals, SECTIONS[13]: sec_data_upload}[section](c)
