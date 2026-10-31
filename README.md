@@ -39,3 +39,21 @@ database/schema.sql + db_manager.py                       optimization/{problem,
 services/{auth,application,notification,email,whatsapp}_service.py             reports/{evaluation_pdf,application_pdf}.py
 static/images + assets/generate_images.py                 tests/test_{allocation,reallocation,appeals,notifications,auth}.py
 ```
+
+## Adding college photographs to the public website
+
+The public site uses photo *slots* (see `ui/public/images.py`). Every slot shows a branded placeholder
+until you drop a file into `static/images/photos/` named after the slot (jpg, jpeg, png or webp):
+
+| Slot file | Where it appears |
+|---|---|
+| `hero.jpg` | Homepage hero background |
+| `about.jpg` | About section (home + About page) |
+| `venue.jpg` | Competition venue section (home, About, Contact) |
+| `gallery_1.jpg` … `gallery_6.jpg` | Campus gallery (home shows 1–5, Campus Life shows 1–6) |
+| `facility_classrooms.jpg`, `facility_labs.jpg`, `facility_library.jpg`, `facility_sports.jpg`, `facility_events.jpg`, `facility_hostel.jpg` | Campus Life facility cards |
+| `head_about.jpg`, `head_academics.jpg`, `head_courses.jpg`, `head_admissions.jpg`, `head_campus.jpg`, `head_contact.jpg` | Page header backgrounds |
+| `admissions.jpg` | Admissions page instructions section |
+| `program_<code>.jpg` (e.g. `program_cse.jpg`) | Programme cards and programme detail pages |
+
+No page code changes are needed. To use a different file name for a slot, add it to `OVERRIDES` in `ui/public/images.py`.

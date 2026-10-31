@@ -13,7 +13,7 @@ CSS = """
 <style>
 [data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"],
 header[data-testid="stHeader"], #MainMenu, footer { display:none !important; }
-[data-testid="stAppViewContainer"] { background: radial-gradient(900px 400px at 50% -10%, #1B3B6B 0%, #0B1F3A 60%); }
+[data-testid="stAppViewContainer"] { background: radial-gradient(900px 500px at 85% 10%, rgba(139,92,246,.45), transparent 60%), radial-gradient(700px 400px at 10% 90%, rgba(245,179,1,.18), transparent 60%), linear-gradient(120deg, #0B1F3A 0%, #122B4F 55%, #3B1F8A 100%); }
 .block-container { padding-top: 2.5rem !important; max-width: 100% !important; }
 h1.gw-title, .gw-title { text-align:center; color:#fff !important; font-weight:900; font-size:2.2rem; letter-spacing:-.5px; margin:0; padding:0; }
 .gw-sub { text-align:center; color:rgba(255,255,255,.7); margin:4px 0 22px; }
