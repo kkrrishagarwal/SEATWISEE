@@ -9,7 +9,7 @@ All photographs on the public website are openly licensed images from Wikimedia 
 
 
 Please do not upload an edited image here without consulting me.  I would like to make corrections only at my own source to ensure that the changes improve the image and are preserved.Otherwise you may upload an edited image with a new name. Please use one of the templates derivative or extract. | CC BY-SA 4.0 |
-| `about` | [A classroom with students at the College of Medicine, FUASK.jpg](https://commons.wikimedia.org/wiki/File:A_classroom_with_students_at_the_College_of_Medicine,_FUASK.jpg) | Kambai Akau | CC BY-SA 4.0 |
+| `about` | [Defense.gov photo essay 091118-D-7203C-005.jpg](https://commons.wikimedia.org/wiki/File:Defense.gov_photo_essay_091118-D-7203C-005.jpg) | Cherie Cullen | Public domain |
 | `venue` | [Government Engineering College Palamu campus.jpg](https://commons.wikimedia.org/wiki/File:Government_Engineering_College_Palamu_campus.jpg) | Azmi03editor | CC BY-SA 4.0 |
 | `gallery_1` | [Academic Block, ESIC Medical College and Hospital, Faridabad.jpg](https://commons.wikimedia.org/wiki/File:Academic_Block,_ESIC_Medical_College_and_Hospital,_Faridabad.jpg) | Samarthrastogi15 | CC BY-SA 4.0 |
 | `gallery_2` | [Crustal Deformation experiment (25223887737).jpg](https://commons.wikimedia.org/wiki/File:Crustal_Deformation_experiment_(25223887737).jpg) | UCL Mathematical &amp; Physical Sciences from London, UK | CC BY 2.0 |
