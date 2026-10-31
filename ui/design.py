@@ -262,9 +262,13 @@ def sidebar_brand(brand: str, institute: str, logo_url: str) -> None:
 def sidebar_profile(name: str, lines: list[str], on_logout) -> None:
     with st.container(key="sidebar_profile"):
         st.html(f"<div class='sw-profile'><span class='av'>{esc(initials(name))}</span><div><b>{esc(name)}</b>{''.join(f'<small>{esc(l)}</small>' for l in lines if l)}</div></div>")
-        r1, r2 = st.columns(2)
-        r1.button("Refresh", key="refresh_btn", on_click=_refresh, width="stretch", icon=":material/refresh:", help="Reload this page with the latest data")
-        r2.button("Log out", key="logout_btn", on_click=on_logout, width="stretch", icon=":material/logout:")
+        st.button("Log out", key="logout_btn", on_click=on_logout, width="stretch", icon=":material/logout:")
+
+
+def refresh_button() -> None:
+    """Top-of-sidebar Refresh: re-runs the page with fresh database reads, keeping sign-in and the current section."""
+    st.button("Refresh", key="refresh_btn", on_click=_refresh, type="primary", width="stretch", icon=":material/refresh:",
+              help="Reload this page with the latest data")
     if st.session_state.pop("_refreshed", False):
         st.toast("Refreshed with the latest data", icon="🔄")
 

@@ -765,6 +765,7 @@ def render(c) -> None:
     institute = db.get_site_text(c, "institute_name", "Institute")
     with st.sidebar:
         ds.sidebar_brand(BRAND, institute, LOGO)
+        ds.refresh_button()
         st.html("<div class='sw-navhead'>Administration</div>")
         section = render_sidebar_nav()
         ds.sidebar_profile(st.session_state.get("auth_name") or "Administrator", ["Administrator · full access", institute], auth.full_logout)

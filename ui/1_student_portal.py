@@ -555,6 +555,7 @@ def render_my_portal(c, aid: int) -> None:
     institute = content.get("institute_name", "Syntaxis Institute of Technology")
     with st.sidebar:
         ds.sidebar_brand(BRAND, institute, LOGO)
+        ds.refresh_button()
         st.html("<div class='sw-navhead'>Student portal</div>")
         section = st.radio("Student menu", NAV_OPTIONS, key="student_nav", label_visibility="collapsed")
         ds.sidebar_profile(a["name"], [f"{a['track']} track" if a["track"] else "Student", db.app_id(a["id"]) if db.has_applied(a) else a["email"], institute], auth.full_logout)
