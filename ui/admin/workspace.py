@@ -745,19 +745,17 @@ def sec_data_upload(c):
         st.dataframe(report.style.apply(lambda row: ["background-color:#FEE2E2" if row.Result != "OK" else ""] * len(row), axis=1), hide_index=True, width="stretch", height=min(380, 40 + 35 * len(report)))
         if bad:
             st.download_button("⬇ Error report CSV", report[report.Result != "OK"].to_csv(index=False).encode(), "import_errors.csv", "text/csv", key="csv_err")
-        email_them = st.checkbox("Email each imported applicant a welcome message (tells them to set a password with 'Forgot password')", value=True, key="csv_email")
+        email_them = st.checkbox("Email each imported applicant a welcome message (tells them to set a password with 'Forgot password'; sent in the background)", value=True, key="csv_email")
         if st.button(f"Import {ok} valid applicant(s)", type="primary", key="csv_import", width="stretch", disabled=ok == 0):
             with st.spinner("Creating accounts and applications…"):
                 ids = db.import_applicants(c, valid)
                 counts = aps.verify_all_eligibility(c)
-                sent = Counter()
                 if email_them:
-                    for aid in ids:
-                        sent[ns.notify(c, aid, "account_registered", dedupe="welcome").get("email", "skipped")] += 1
+                    ns.notify_bulk_background(db.DEFAULT_DB_PATH, ids, "account_registered", dedupe="welcome")
                 if db.get_setting(c, "demo_mode") == "1" and not c.execute("SELECT COUNT(*) FROM applicants WHERE email LIKE '%@seatwisee.demo'").fetchone()[0]:
                     db.set_setting(c, "demo_mode", "0")
             st.session_state["csv_done"] = (f"Imported {len(ids)} applicant(s) from {up.name}. Eligibility: {counts.get('eligible', 0)} eligible, {counts.get('ineligible', 0)} ineligible."
-                                            + (" Emails: " + ", ".join(f"{_status_label(k)} {v}" for k, v in sent.items()) if email_them else ""))
+                                            + (" Welcome emails are being sent in the background; results appear in the Notifications delivery log." if email_them else ""))
             st.session_state["csv_gen"] = st.session_state.get("csv_gen", 0) + 1   # fresh uploader: the imported file is not re-validated
             st.toast(f"{len(ids)} applicants imported", icon="✅"); st.rerun()
 

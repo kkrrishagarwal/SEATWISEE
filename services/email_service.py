@@ -50,9 +50,22 @@ def status_text() -> str:
     return "not configured · missing " + ", ".join(missing)
 
 
+# Credentials the server rejected, keyed by (host, user, password hash). While the same credentials are configured,
+# further sends fail immediately instead of opening a new connection and waiting for another 535.
+_REJECTED: dict = {}
+
+
+def _cred_key() -> tuple:
+    import hashlib
+    c = config()
+    return (c["host"], c["user"], hashlib.sha256((c["password"] or "").encode()).hexdigest())
+
+
 def send_email(to: str, subject: str, html_body: str, text_body: Optional[str] = None, timeout: int = 20) -> Tuple[str, str]:
     if not is_configured():
         return "not_configured", "SMTP credentials missing: " + ", ".join(k for k in REQUIRED if not _get(k))
+    if _cred_key() in _REJECTED:
+        return "failed", _REJECTED[_cred_key()] + " (not retried until the credentials change)"
     if not to or "@" not in to:
         return "failed", "invalid recipient"
     c = config()
@@ -79,9 +92,73 @@ def send_email(to: str, subject: str, html_body: str, text_body: Optional[str] =
             return "failed", f"recipients refused: {refused}"
         return "sent", "accepted by SMTP server"
     except smtplib.SMTPAuthenticationError as e:
-        return "failed", f"authentication failed: {e.smtp_code} {e.smtp_error!r}"
+        _REJECTED[_cred_key()] = f"authentication failed: {e.smtp_code} {e.smtp_error!r}"
+        return "failed", _REJECTED[_cred_key()]
     except (smtplib.SMTPException, OSError) as e:
         return "failed", f"{type(e).__name__}: {e}"
+
+
+def forget_rejection() -> None:
+    """Allow a fresh attempt with the current credentials (used by the admin 'Send Test' button)."""
+    _REJECTED.pop(_cred_key(), None)
+
+
+class SMTPSession:
+    """One SMTP connection for many messages. After an authentication or connection failure it stops
+    contacting the server and returns the same failure for every remaining message (no repeated timeouts)."""
+
+    def __init__(self, timeout: int = 20):
+        self.timeout, self.server, self.dead = timeout, None, None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        try:
+            if self.server is not None:
+                self.server.quit()
+        except Exception:
+            pass
+
+    def _connect(self):
+        c = config()
+        if c["tls"] == "ssl":
+            s = smtplib.SMTP_SSL(c["host"], c["port"], timeout=self.timeout, context=ssl.create_default_context(), local_hostname="seatwisee.local")
+        else:
+            s = smtplib.SMTP(c["host"], c["port"], timeout=self.timeout, local_hostname="seatwisee.local"); s.ehlo()
+            if c["tls"] == "starttls":
+                s.starttls(context=ssl.create_default_context()); s.ehlo()
+        _login(s, c["user"], c["password"])
+        self.server = s
+
+    def send(self, to: str, subject: str, html_body: str, text_body: Optional[str] = None) -> Tuple[str, str]:
+        if not is_configured():
+            return "not_configured", "SMTP credentials missing: " + ", ".join(k for k in REQUIRED if not _get(k))
+        if self.dead:
+            return "failed", self.dead
+        if _cred_key() in _REJECTED:
+            self.dead = _REJECTED[_cred_key()] + " (not retried until the credentials change)"; return "failed", self.dead
+        if not to or "@" not in to:
+            return "failed", "invalid recipient"
+        msg = EmailMessage(); msg["From"] = config()["sender"]; msg["To"] = to; msg["Subject"] = subject
+        msg.set_content(text_body or _strip_html(html_body)); msg.add_alternative(html_body, subtype="html")
+        for attempt in (1, 2):   # one reconnect if the server dropped an idle connection
+            try:
+                if self.server is None:
+                    self._connect()
+                refused = self.server.send_message(msg)
+                return ("failed", f"recipients refused: {refused}") if refused else ("sent", "accepted by SMTP server")
+            except smtplib.SMTPAuthenticationError as e:
+                self.dead = _REJECTED[_cred_key()] = f"authentication failed: {e.smtp_code} {e.smtp_error!r}"; return "failed", self.dead
+            except smtplib.SMTPServerDisconnected as e:
+                self.server = None
+                if attempt == 2:
+                    self.dead = f"SMTPServerDisconnected: {e}"; return "failed", self.dead
+            except (smtplib.SMTPException, OSError) as e:
+                if self.server is None:   # could not connect at all: stop trying for the rest of the batch
+                    self.dead = f"{type(e).__name__}: {e}"
+                return "failed", f"{type(e).__name__}: {e}"
+        return "failed", "unknown error"
 
 
 def _login(s: smtplib.SMTP, user: str, password: str) -> None:

@@ -86,11 +86,56 @@ def notify(conn, applicant_id: Optional[int], event: str, ctx: Optional[Dict[str
     return results
 
 
+def notify_bulk(conn, applicant_ids, event: str, ctx: Optional[Dict[str, str]] = None, *, dedupe: Optional[str] = None) -> Dict[str, int]:
+    """Same records as notify() for many applicants, but every email shares one SMTP connection and a
+    rejected login is not retried 100 times. Returns counts of email statuses."""
+    from collections import Counter
+    inst = db.get_site_text(conn, "institute_name", "the institute")
+    counts: Counter = Counter()
+    with email_service.SMTPSession() as smtp:
+        for aid in applicant_ids:
+            row = conn.execute("SELECT * FROM applicants WHERE id = ?", (aid,)).fetchone()
+            if row is None:
+                continue
+            c = dict(ctx or {}); c.setdefault("name", row["name"]); c.setdefault("app_id", db.app_id(row["id"]))
+            msg = _template(conn, event, c)
+            for ch in ("in_app", "email", "whatsapp"):
+                if ch == "in_app":
+                    status, detail = "sent", "delivered in portal"
+                elif ch == "email":
+                    status, detail = smtp.send(row["email"], f"[{BRAND}] {msg['subject']}", _html(msg["subject"], msg["body"], inst), msg["body"]) if row["email"] else ("skipped", "no email address")
+                    counts[status] += 1
+                else:
+                    status, detail = whatsapp_service.send_whatsapp(row["phone"], f"{BRAND} · {msg['subject']}\n{msg['body']}") if row["phone"] else ("skipped", "no phone number")
+                db.insert_notification(conn, applicant_id=aid, channel=ch, event=event, subject=msg["subject"], body=msg["body"],
+                                       status=status, provider_response=detail, dedupe_key=f"{aid}:{ch}:{dedupe or event}")
+    return dict(counts)
+
+
+def notify_bulk_background(db_path: str, applicant_ids, event: str, *, dedupe: Optional[str] = None) -> None:
+    """Fire-and-forget bulk notification on its own SQLite connection, so the admin UI returns immediately.
+    Results appear in the Notifications delivery log as they are sent."""
+    import threading
+
+    def run():
+        c = db.get_conn(db_path)
+        try:
+            out = notify_bulk(c, list(applicant_ids), event, dedupe=dedupe)
+            db.log_audit(c, "system", "bulk_notification_done", {"event": event, "count": len(applicant_ids), "email": out})
+        except Exception as e:  # never let a background failure surface as a crash
+            db.log_audit(c, "system", "bulk_notification_error", {"event": event, "error": str(e)[:300]})
+        finally:
+            c.close()
+
+    threading.Thread(target=run, name=f"notify-{event}", daemon=True).start()
+
+
 def send_test(conn, to_email: str, to_phone: str) -> Dict[str, str]:
     """Admin test-send. Not deduped; recorded with applicant_id NULL."""
     inst = db.get_site_text(conn, "institute_name", "the institute")
     msg = _template(conn, "test", {"name": "Admin"})
     out = {}
+    email_service.forget_rejection()   # a test send always really contacts the server
     if to_email:
         status, detail = email_service.send_email(to_email, f"[{BRAND}] {msg['subject']}", _html(msg["subject"], msg["body"], inst), msg["body"])
         db.insert_notification(conn, applicant_id=None, channel="email", event="test", subject=msg["subject"], body=f"to {to_email}", status=status, provider_response=detail)

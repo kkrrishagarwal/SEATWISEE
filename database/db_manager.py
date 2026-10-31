@@ -589,8 +589,11 @@ def hash_password(password: str, salt: Optional[str] = None) -> str:
     return f"pbkdf2_sha256${salt}${digest}"
 
 
+LOCKED_PASSWORD_PREFIX = "locked$"   # imported account: no password set yet; login impossible until a reset
+
+
 def verify_password(stored: Optional[str], password: str) -> bool:
-    if not stored:
+    if not stored or stored.startswith(LOCKED_PASSWORD_PREFIX):
         return False
     try:
         _algo, salt, _digest = stored.split("$", 2)
@@ -1172,7 +1175,7 @@ def import_applicants(conn: sqlite3.Connection, rows: List[dict]) -> List[int]:
             cur.execute(
                 "INSERT INTO applicants (name, email, score, track, form_data, applied_at, application_status, password_hash, phone, address, eligibility_status) "
                 "VALUES (?,?,?,?,?,datetime('now'),'applied',?,?,?,'pending')",
-                (r["name"], r["email"], r["score"], r["track"], json.dumps({"source": "csv_import"}), hash_password(secrets.token_urlsafe(24)), r["phone"], r["address"]),
+                (r["name"], r["email"], r["score"], r["track"], json.dumps({"source": "csv_import"}), LOCKED_PASSWORD_PREFIX + secrets.token_hex(8), r["phone"], r["address"]),
             )
             aid = cur.lastrowid
             for rank, pid in enumerate(r["prefs"], start=1):
